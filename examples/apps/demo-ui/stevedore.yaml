@@ -1,0 +1,13 @@
+image:
+  repository: nginx
+  tag: 1.31.3
+restartPolicy: always
+ports:
+  - name: http
+    containerPort: 80
+    hostPort: 8080
+environment:
+  API_BASE_URL: "http${demo-api.expose.config.ssl?'s':''}://${demo-api.expose.config.domain}"
+network:
+  name: demo # network should support multiple networks the app should be attached to
+
