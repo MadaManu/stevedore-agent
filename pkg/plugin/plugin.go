@@ -23,7 +23,7 @@ package plugin
 type App struct {
 	// Name is the application name derived from the folder under apps/.
 	//
-	// Example: apps/demo/stevedore.yaml => Name == "demo".
+	// Example: apps/demo/stevedore.yml => Name == "demo".
 	Name string
 
 	// ContainerName is the name of the running Docker container.

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"stevedore-agent/internal/secrets"
 )
 
 func appByName(apps []Application, name string) *Application {
@@ -25,11 +27,11 @@ func TestLoadApplicationsDefaultsNameFromFolder(t *testing.T) {
   repository: nginx
   tag: latest
 `
-	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yaml"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	apps, err := LoadApplications(tmp)
+	apps, err := LoadApplications(tmp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,11 +55,11 @@ image:
   repository: nginx
   tag: latest
 `
-	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yaml"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	apps, err := LoadApplications(tmp)
+	apps, err := LoadApplications(tmp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,11 +80,11 @@ image:
   repository: nginx
   tag: latest
 `
-	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yaml"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := LoadApplications(tmp)
+	_, err := LoadApplications(tmp, nil)
 	if err == nil {
 		t.Fatal("expected mismatched metadata.name to fail validation")
 	}
@@ -117,14 +119,14 @@ environment:
   API_HOST: "${demo-api.expose.config.domain}"
 `
 
-	if err := os.WriteFile(filepath.Join(apiDir, "stevedore.yaml"), []byte(api), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(apiDir, "stevedore.yml"), []byte(api), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(uiDir, "stevedore.yaml"), []byte(ui), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(uiDir, "stevedore.yml"), []byte(ui), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	apps, err := LoadApplications(tmp)
+	apps, err := LoadApplications(tmp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +163,76 @@ environment:
   API_BASE_URL: "${demo-api.expose.config.missing}"
 `
 
-	if err := os.WriteFile(filepath.Join(apiDir, "stevedore.yaml"), []byte(api), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(apiDir, "stevedore.yml"), []byte(api), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(uiDir, "stevedore.yaml"), []byte(ui), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(uiDir, "stevedore.yml"), []byte(ui), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := LoadApplications(tmp); err == nil {
+	if _, err := LoadApplications(tmp, nil); err == nil {
 		t.Fatal("expected unresolved interpolation to fail")
+	}
+}
+
+func TestLoadApplicationsResolvesLocalSecretReferences(t *testing.T) {
+	tmp := t.TempDir()
+	uiDir := filepath.Join(tmp, "apps", "demo-ui")
+	if err := os.MkdirAll(uiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	storePath := filepath.Join(tmp, "secrets.yml")
+	if err := os.WriteFile(storePath, []byte("api:\n  key: super-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ui := `image:
+  repository: nginx
+environment:
+  API_KEY: "${local:api/key}"
+`
+	if err := os.WriteFile(filepath.Join(uiDir, "stevedore.yml"), []byte(ui), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	provider, err := secrets.NewLocalProvider(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := secrets.NewResolver(map[string]secrets.Provider{"local": provider})
+
+	apps, err := LoadApplications(tmp, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uiApp := appByName(apps, "demo-ui")
+	if uiApp == nil {
+		t.Fatal("demo-ui app not loaded")
+	}
+	if got, want := uiApp.Environment["API_KEY"], "super-secret"; got != want {
+		t.Fatalf("API_KEY mismatch: want %q got %q", want, got)
+	}
+}
+
+func TestLoadApplicationsFailsWhenSecretProviderMissing(t *testing.T) {
+	tmp := t.TempDir()
+	uiDir := filepath.Join(tmp, "apps", "demo-ui")
+	if err := os.MkdirAll(uiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ui := `image:
+  repository: nginx
+environment:
+  API_KEY: "${local:api/key}"
+`
+	if err := os.WriteFile(filepath.Join(uiDir, "stevedore.yml"), []byte(ui), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected missing secret provider to fail")
 	}
 }

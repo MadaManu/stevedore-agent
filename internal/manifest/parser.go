@@ -11,8 +11,8 @@ import (
 
 const ()
 
-func LoadApplications(repoRoot string) ([]Application, error) {
-	pattern := filepath.Join(repoRoot, "apps", "*", "stevedore.yaml")
+func LoadApplications(repoRoot string, secretResolver SecretResolver) ([]Application, error) {
+	pattern := filepath.Join(repoRoot, "apps", "*", "stevedore.yml")
 	paths, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("glob manifests: %w", err)
@@ -33,7 +33,7 @@ func LoadApplications(repoRoot string) ([]Application, error) {
 		apps = append(apps, app)
 	}
 
-	if err := resolveAllApplications(apps); err != nil {
+	if err := resolveAllApplications(apps, secretResolver); err != nil {
 		return nil, err
 	}
 

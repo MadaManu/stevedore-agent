@@ -9,7 +9,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func resolveAllApplications(apps []Application) error {
+// SecretResolver resolves ${provider:path} placeholders at execution time.
+type SecretResolver interface {
+	Resolve(provider, path string) (string, error)
+}
+
+func resolveAllApplications(apps []Application, secretResolver SecretResolver) error {
 	if len(apps) == 0 {
 		return nil
 	}
@@ -23,7 +28,7 @@ func resolveAllApplications(apps []Application) error {
 
 		changed := false
 		for ai := range apps {
-			appChanged, err := resolveApplicationPlaceholders(&apps[ai], lookup)
+			appChanged, err := resolveApplicationPlaceholders(&apps[ai], lookup, secretResolver)
 			if err != nil {
 				return fmt.Errorf("%s: %w", apps[ai].SourcePath, err)
 			}
@@ -60,22 +65,22 @@ func buildAppLookup(apps []Application) (map[string]any, error) {
 	return lookup, nil
 }
 
-func resolveApplicationPlaceholders(app *Application, lookup map[string]any) (bool, error) {
+func resolveApplicationPlaceholders(app *Application, lookup map[string]any, secretResolver SecretResolver) (bool, error) {
 	v := reflect.ValueOf(app)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
 		return false, nil
 	}
-	return resolveValue(v.Elem(), lookup)
+	return resolveValue(v.Elem(), lookup, secretResolver)
 }
 
-func resolveValue(v reflect.Value, lookup map[string]any) (bool, error) {
+func resolveValue(v reflect.Value, lookup map[string]any, secretResolver SecretResolver) (bool, error) {
 	if !v.IsValid() {
 		return false, nil
 	}
 
 	switch v.Kind() {
 	case reflect.String:
-		resolved, changed, err := resolveString(v.String(), lookup)
+		resolved, changed, err := resolveString(v.String(), lookup, secretResolver)
 		if err != nil {
 			return false, err
 		}
@@ -87,14 +92,14 @@ func resolveValue(v reflect.Value, lookup map[string]any) (bool, error) {
 		if v.IsNil() {
 			return false, nil
 		}
-		return resolveValue(v.Elem(), lookup)
+		return resolveValue(v.Elem(), lookup, secretResolver)
 	case reflect.Struct:
 		changed := false
 		for i := 0; i < v.NumField(); i++ {
 			if !v.Field(i).CanSet() {
 				continue
 			}
-			fieldChanged, err := resolveValue(v.Field(i), lookup)
+			fieldChanged, err := resolveValue(v.Field(i), lookup, secretResolver)
 			if err != nil {
 				return false, err
 			}
@@ -104,7 +109,7 @@ func resolveValue(v reflect.Value, lookup map[string]any) (bool, error) {
 	case reflect.Slice:
 		changed := false
 		for i := 0; i < v.Len(); i++ {
-			itemChanged, err := resolveValue(v.Index(i), lookup)
+			itemChanged, err := resolveValue(v.Index(i), lookup, secretResolver)
 			if err != nil {
 				return false, err
 			}
@@ -119,7 +124,7 @@ func resolveValue(v reflect.Value, lookup map[string]any) (bool, error) {
 			val := iter.Value()
 			switch val.Kind() {
 			case reflect.String:
-				resolved, itemChanged, err := resolveString(val.String(), lookup)
+				resolved, itemChanged, err := resolveString(val.String(), lookup, secretResolver)
 				if err != nil {
 					return false, err
 				}
@@ -128,7 +133,7 @@ func resolveValue(v reflect.Value, lookup map[string]any) (bool, error) {
 				}
 				changed = changed || itemChanged
 			case reflect.Interface:
-				resolvedAny, itemChanged, err := resolveAny(val.Interface(), lookup)
+				resolvedAny, itemChanged, err := resolveAny(val.Interface(), lookup, secretResolver)
 				if err != nil {
 					return false, err
 				}
@@ -144,14 +149,14 @@ func resolveValue(v reflect.Value, lookup map[string]any) (bool, error) {
 	}
 }
 
-func resolveAny(value any, lookup map[string]any) (any, bool, error) {
+func resolveAny(value any, lookup map[string]any, secretResolver SecretResolver) (any, bool, error) {
 	switch v := value.(type) {
 	case string:
-		return resolveString(v, lookup)
+		return resolveString(v, lookup, secretResolver)
 	case map[string]any:
 		changed := false
 		for k, item := range v {
-			resolved, itemChanged, err := resolveAny(item, lookup)
+			resolved, itemChanged, err := resolveAny(item, lookup, secretResolver)
 			if err != nil {
 				return nil, false, err
 			}
@@ -164,7 +169,7 @@ func resolveAny(value any, lookup map[string]any) (any, bool, error) {
 	case []any:
 		changed := false
 		for i, item := range v {
-			resolved, itemChanged, err := resolveAny(item, lookup)
+			resolved, itemChanged, err := resolveAny(item, lookup, secretResolver)
 			if err != nil {
 				return nil, false, err
 			}
@@ -179,7 +184,7 @@ func resolveAny(value any, lookup map[string]any) (any, bool, error) {
 	}
 }
 
-func resolveString(input string, lookup map[string]any) (string, bool, error) {
+func resolveString(input string, lookup map[string]any, secretResolver SecretResolver) (string, bool, error) {
 	if !strings.Contains(input, "${") {
 		return input, false, nil
 	}
@@ -200,7 +205,7 @@ func resolveString(input string, lookup map[string]any) (string, bool, error) {
 			return "", false, fmt.Errorf("unterminated placeholder in %q", input)
 		}
 		expr := strings.TrimSpace(remaining[exprStart : exprStart+end])
-		val, err := evalExpr(expr, lookup)
+		val, err := evalExpr(expr, lookup, secretResolver)
 		if err != nil {
 			return "", false, err
 		}
@@ -212,25 +217,25 @@ func resolveString(input string, lookup map[string]any) (string, bool, error) {
 	return out.String(), changed, nil
 }
 
-func evalExpr(expr string, lookup map[string]any) (string, error) {
+func evalExpr(expr string, lookup map[string]any, secretResolver SecretResolver) (string, error) {
 	if _, c, t, f, ok := splitTernary(expr); ok {
-		condVal, err := evalAtom(c, lookup)
+		condVal, err := evalAtom(c, lookup, secretResolver)
 		if err != nil {
 			return "", err
 		}
 		if truthy(condVal) {
-			return evalExpr(strings.TrimSpace(t), lookup)
+			return evalExpr(strings.TrimSpace(t), lookup, secretResolver)
 		}
-		return evalExpr(strings.TrimSpace(f), lookup)
+		return evalExpr(strings.TrimSpace(f), lookup, secretResolver)
 	}
-	v, err := evalAtom(expr, lookup)
+	v, err := evalAtom(expr, lookup, secretResolver)
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprint(v), nil
 }
 
-func evalAtom(expr string, lookup map[string]any) (any, error) {
+func evalAtom(expr string, lookup map[string]any, secretResolver SecretResolver) (any, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
 		return "", nil
@@ -247,7 +252,39 @@ func evalAtom(expr string, lookup map[string]any) (any, error) {
 	if n, err := strconv.Atoi(expr); err == nil {
 		return n, nil
 	}
+	if provider, path, ok := parseSecretReference(expr); ok {
+		if secretResolver == nil {
+			return nil, fmt.Errorf("secret provider %q not configured", provider)
+		}
+		secretValue, err := secretResolver.Resolve(provider, path)
+		if err != nil {
+			return nil, err
+		}
+		return secretValue, nil
+	}
 	return lookupPath(expr, lookup)
+}
+
+func parseSecretReference(expr string) (provider string, path string, ok bool) {
+	idx := strings.Index(expr, ":")
+	if idx <= 0 || idx == len(expr)-1 {
+		return "", "", false
+	}
+
+	provider = strings.TrimSpace(expr[:idx])
+	path = strings.TrimSpace(expr[idx+1:])
+	if provider == "" || path == "" {
+		return "", "", false
+	}
+
+	for _, ch := range provider {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' {
+			continue
+		}
+		return "", "", false
+	}
+
+	return provider, path, true
 }
 
 func lookupPath(path string, lookup map[string]any) (any, error) {

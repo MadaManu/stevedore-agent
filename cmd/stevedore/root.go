@@ -2,17 +2,21 @@ package stevedore
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/spf13/cobra"
 	"log/slog"
 	"os"
+
 	"stevedore-agent/internal/docker"
 	"stevedore-agent/internal/logging"
 	"stevedore-agent/internal/plugins"
 	"stevedore-agent/internal/plugins/apache"
 	"stevedore-agent/internal/reconciler"
+
+	"github.com/spf13/cobra"
 )
 
+// Execute runs the CLI.
 func Execute() {
 	root := newRootCommand()
 	slog.Debug("executing root command", slog.String("binary", "stevedore"))
@@ -22,34 +26,17 @@ func Execute() {
 }
 
 func newRootCommand() *cobra.Command {
-	var logDir string
-	var debug bool
-
 	root := &cobra.Command{
 		Use:           "stevedore",
 		Short:         "Stevedore agent",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			logging.SetDebug(debug)
-			slog.DebugContext(logging.BusinessContext(context.Background(), "startup"), "command pre-run",
-				slog.String("command", cmd.Name()),
-				slog.Bool("debug", debug),
-				slog.Int("args", len(args)),
-			)
-		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 
-	root.PersistentFlags().StringVar(&logDir, "log-dir", "", "Log directory (overrides STEVEDORE_LOG_DIR)")
-	root.PersistentFlags().BoolVar(&debug, "debug", false, "Print verbose logs to stderr as well")
-
-	root.AddCommand(newApplyCommand())
-	root.AddCommand(newStatusCommand())
-	root.AddCommand(newLogsCommand())
-	root.AddCommand(newDeleteCommand())
+	root.AddCommand(newRunCommand())
 
 	return root
 }
@@ -59,13 +46,14 @@ func buildReconciler(apacheSitesDir string) *reconciler.Reconciler {
 	return &reconciler.Reconciler{Runtime: docker.NewDockerRuntime(), Plugins: pm}
 }
 
-func usage() {
-	ctx := logging.BusinessContext(context.Background(), "usage")
-	slog.InfoContext(ctx, "stevedore <command>")
-	slog.InfoContext(ctx, "commands: apply, status, logs, delete")
-}
-
 func fatal(err error) {
+	// Config errors are user-facing setup guidance; print cleanly without log prefix.
+	var cfgErr *ConfigError
+	if errors.As(err, &cfgErr) {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
+	// Other errors get structured logging.
 	slog.ErrorContext(logging.SecurityContext(context.Background(), "fatal"), "command failed", slog.String("error", err.Error()))
 	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 	os.Exit(1)

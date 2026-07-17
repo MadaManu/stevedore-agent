@@ -1,0 +1,40 @@
+# Stevedore agent configuration (git source of truth)
+#
+# Loaded once at startup. Precedence: ENV overrides > these file values > defaults.
+#
+# The active source is inferred from which node is present under `source`
+# (define exactly one of `local` or `git`). Likewise, the git auth method is
+# inferred from which node is present under `source.git.auth` (define at most
+# one of `token`, `basic`, or `ssh`; omit entirely for public repos).
+#
+# Secrets support ${ENV_VAR} interpolation so they can be injected at runtime
+# instead of being stored in plaintext.
+
+logging:
+  dir: /var/log/stevedore
+  debug: false
+
+source:
+  git:
+    url: https://github.com/your-org/your-apps-repo.git
+    branch: main
+    # Where the repository is checked out. Overridable by STEVEDORE_WORKDIR.
+    workdir: /var/lib/stevedore/repo
+    auth:
+      # token auth (GitHub/GitLab personal access or app tokens):
+      token:
+        value: ${GIT_TOKEN}
+
+      # --- basic auth alternative ---
+      # basic:
+      #   username: ${GIT_USERNAME}
+      #   password: ${GIT_PASSWORD}
+
+      # --- ssh alternative (url must be an ssh git url) ---
+      # ssh:
+      #   keyPath: /etc/stevedore/keys/id_ed25519
+
+poll:
+  interval: 60s
+
+apacheSitesDir: /etc/apache2/sites-enabled
