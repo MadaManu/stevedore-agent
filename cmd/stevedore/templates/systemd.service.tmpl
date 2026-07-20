@@ -1,0 +1,17 @@
+[Unit]
+Description=Stevedore agent
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Service]
+Environment=STEVEDORE_HOME={{.StevedoreHome}}
+Environment=STEVEDORE_LOG_DIR={{.LogDir}}
+ExecStart={{.BinaryPath}} run
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+

@@ -5,10 +5,13 @@ watches a **source of truth** (a local directory or a git repository) and applie
 any changes it finds, on a configurable schedule.
 
 ```bash
-stevedore run                 # loads config, then runs continuously
-STEVEDORE_HOME=/etc/stevedore stevedore run
-STEVEDORE_DEBUG=true stevedore run   # verbose per-cycle tracing
+stevedore-agent run                 # loads config, then runs continuously
+STEVEDORE_HOME=/etc/stevedore stevedore-agent run
+STEVEDORE_DEBUG=true stevedore-agent run   # verbose per-cycle tracing
 ```
+
+Before starting the agent, you can validate the effective configuration and
+local prerequisites with [`stevedore-agent doctor`](./doctor.md).
 
 Configuration is **loaded and validated exactly once at startup** and then
 treated as immutable for the life of the process. Nothing is hot-reloaded — to
@@ -100,7 +103,7 @@ present** — there is no `type` or `method` discriminator field.
 | `source.git.auth.ssh.keyPath` | string | Private key path (present ⇒ ssh auth). Supports `${ENV}`. |
 | `secrets.providers.local.file` | string | Path to YAML/JSON secrets store used by `${local:...}` placeholders. |
 | `poll.interval` | duration | How often to check. Default `30s` (e.g. `15s`, `5m`, `1h`). |
-| `apacheSitesDir` | string | Apache vhost output dir. Default `/etc/apache2/sites-enabled`. |
+| `exposure.apache.sitesDir` | string | Apache vhost output dir. **Optional** — required only when an app uses `expose.provider: apache`. Overridable by `STEVEDORE_APACHE_SITES_DIR`. |
 
 ### Environment overrides
 
@@ -112,7 +115,7 @@ Each of these, when set, wins over the corresponding config-file value:
 | `STEVEDORE_LOG_DIR` | `logging.dir` |
 | `STEVEDORE_DEBUG` | `logging.debug` (bool) |
 | `STEVEDORE_POLL_INTERVAL` | `poll.interval` (Go duration) |
-| `STEVEDORE_APACHE_SITES_DIR` | `apacheSitesDir` |
+| `STEVEDORE_APACHE_SITES_DIR` | `exposure.apache.sitesDir` — also activates the apache provider if not already configured in the file. |
 | `STEVEDORE_WORKDIR` | `source.git.workdir` |
 
 ### Secrets
@@ -152,6 +155,70 @@ environment:
 
 The local store file can be YAML or JSON and supports nested paths using `/`
 (for example `api/token` or `nested/list/0`).
+
+### Exposure providers
+
+Exposure providers are **optional** and configured under `exposure`. A provider
+is only required when at least one app in your manifests sets `expose.enabled:
+true` and `expose.provider` to that provider name. No provider configuration is
+needed if none of your apps use `expose`.
+
+The active provider(s) are inferred from which nodes are present under
+`exposure` — there is no explicit list.
+
+#### Apache
+
+The `apache` provider writes Apache VirtualHost configuration files to the
+configured `sites-enabled` directory, handles Let's Encrypt certificate
+issuance/renewal (when `ssl: true`), and reloads Apache.
+
+Full documentation, all `expose.config` parameters, generated vhost examples,
+and a troubleshooting guide: **[`docs/apache-exposure.md`](./apache-exposure.md)**
+
+```yaml
+# config.yml
+exposure:
+  apache:
+    sitesDir: /etc/apache2/sites-enabled   # required when using apache
+```
+
+Minimal HTTP-only app manifest:
+
+```yaml
+# apps/demo-api/stevedore.yml
+expose:
+  enabled: true
+  provider: apache
+  config:
+    domain: api.example.com
+    ssl: false
+```
+
+HTTPS app manifest (Let's Encrypt):
+
+```yaml
+expose:
+  enabled: true
+  provider: apache
+  config:
+    domain: api.example.com
+    ssl: true
+    email: ops@example.com     # required for Let's Encrypt registration
+```
+
+`expose.config` fields:
+
+| Field     | Required              | Default                | Description |
+|-----------|-----------------------|------------------------|-------------|
+| `domain`  | **yes**               | —                      | Public hostname; must resolve to this server. |
+| `ssl`     | no                    | `false`                | Enable HTTPS via Let's Encrypt. |
+| `email`   | **yes when ssl:true** | —                      | Let's Encrypt account / expiry notifications. |
+| `webroot` | no                    | `/var/www/letsencrypt` | ACME HTTP-01 challenge directory. |
+| `port`    | no                    | first `hostPort`       | Override proxy target port. |
+
+The `sitesDir` can also be set via the `STEVEDORE_APACHE_SITES_DIR` environment
+variable, which activates the provider even if `exposure.apache` is absent from
+`config.yml`.
 
 #### Local secrets store structure (example)
 
@@ -225,6 +292,7 @@ interactive credential prompt.
 - Local source: [`examples/config/local.yml`](../examples/config/local.yml)
 - Git source: [`examples/config/git.yml`](../examples/config/git.yml)
 - Local secrets store sample: [`examples/config/secrets.local.yml`](../examples/config/secrets.local.yml)
+- Doctor command: [`docs/doctor.md`](./doctor.md)
 
 ## Repository layout expected at the source
 
@@ -244,21 +312,35 @@ This is the standard Stevedore repository layout consumed by the agent.
 
 ## Running as a service
 
-Example `systemd` unit:
+Install and enable a `systemd` service using the built-in installer command:
+
+```bash
+sudo stevedore-agent install-service
+```
+
+This command writes `/etc/systemd/system/stevedore-agent.service`, runs
+`systemctl daemon-reload`, then runs `systemctl enable --now stevedore-agent.service`.
+
+The service file is generated from a template in code at
+`cmd/stevedore/service_install.go` so it can be changed centrally.
+
+Generated unit content:
 
 ```ini
 [Unit]
 Description=Stevedore agent
 After=network-online.target docker.service
 Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=5
 
 [Service]
 Environment=STEVEDORE_HOME=/etc/stevedore
 Environment=STEVEDORE_LOG_DIR=/var/log/stevedore
 # Environment=GIT_TOKEN=...   (prefer an EnvironmentFile with 0600 perms)
-ExecStart=/usr/local/bin/stevedore run
-Restart=always
-RestartSec=5
+ExecStart=/usr/local/bin/stevedore-agent run
+Restart=on-failure
+RestartSec=30
 
 [Install]
 WantedBy=multi-user.target

@@ -46,14 +46,19 @@ func (p *LocalProvider) Resolve(path string) (string, error) {
 }
 
 func (p *LocalProvider) loadStore() (any, error) {
-	b, err := os.ReadFile(p.filePath)
+	return LoadLocalStore(p.filePath)
+}
+
+// LoadLocalStore reads and parses a local YAML/JSON secrets store file.
+func LoadLocalStore(filePath string) (any, error) {
+	b, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("read local secrets store %s: %w", p.filePath, err)
+		return nil, fmt.Errorf("read local secrets store %s: %w", filePath, err)
 	}
 
 	var raw any
 	if err := yaml.Unmarshal(b, &raw); err != nil {
-		return nil, fmt.Errorf("parse local secrets store %s: %w", p.filePath, err)
+		return nil, fmt.Errorf("parse local secrets store %s: %w", filePath, err)
 	}
 	return normalize(raw), nil
 }

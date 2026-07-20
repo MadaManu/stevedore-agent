@@ -10,23 +10,27 @@
 
 logging:
   # Directory for stevedore.log. Overridable by STEVEDORE_LOG_DIR.
-  dir: /Users/e048222/workspace/general/stevedore-agent/.home/log
+  dir: /Users/username/workspace/general/stevedore-agent/.home/log
   # Verbose logging. Overridable by STEVEDORE_DEBUG.
   debug: true
 
 source:
   local:
     # Directory that contains an apps/ folder with <app>/stevedore.yml manifests.
-    path: /Users/e048222/workspace/general/stevedore-agent/.home/setup
+    path: /Users/username/workspace/general/stevedore-agent/.home/setup
 
 poll:
   # How often to check the source of truth for changes. Overridable by STEVEDORE_POLL_INTERVAL.
   interval: 30s
 
-# Where the apache exposure plugin writes vhost files. Overridable by STEVEDORE_APACHE_SITES_DIR.
-apacheSitesDir: /etc/apache2/sites-enabled
+# Exposure providers are optional. Configure only the providers used by your apps.
+# exposure:
+#   apache:
+#     # Required when any app uses expose.provider: apache.
+#     # Overridable by STEVEDORE_APACHE_SITES_DIR.
+#     sitesDir: /etc/apache2/sites-enabled
 
 secrets:
   providers:
     local:
-      file: ./.home/secrets.local.yml
+      file: ./secrets.local.yml

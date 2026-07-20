@@ -1,0 +1,47 @@
+# Managed by stevedore-agent — do not edit manually.
+# App: {{.AppName}}  Domain: {{.Domain}}
+# Certificate: {{.CertDir}}/fullchain.pem
+
+# ── HTTP ── redirect all traffic to HTTPS, but keep the ACME challenge alive
+# so certbot can renew the certificate without downtime.
+<VirtualHost *:80>
+    ServerName {{.Domain}}
+
+    Alias /.well-known/acme-challenge/ {{.Webroot}}/.well-known/acme-challenge/
+    <Directory "{{.Webroot}}/.well-known/acme-challenge">
+        Options None
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    RewriteEngine On
+    # Let the ACME challenge through before redirecting.
+    RewriteCond %{REQUEST_URI} !^/.well-known/acme-challenge/
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]
+</VirtualHost>
+
+# ── HTTPS ──
+<VirtualHost *:443>
+    ServerName {{.Domain}}
+
+    SSLEngine On
+    SSLCertificateFile    {{.CertDir}}/fullchain.pem
+    SSLCertificateKeyFile {{.CertDir}}/privkey.pem
+
+    # Modern TLS: TLS 1.2+ only, forward-secret ciphers.
+    SSLProtocol             all -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite          ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+    SSLHonorCipherOrder     off
+    SSLSessionTickets       off
+
+    # HSTS — tells browsers to use HTTPS for 2 years (adjust after testing).
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+    ProxyPreserveHost On
+    ProxyPass        / http://127.0.0.1:{{.BackendPort}}/
+    ProxyPassReverse / http://127.0.0.1:{{.BackendPort}}/
+
+    ErrorLog  ${APACHE_LOG_DIR}/{{.AppName}}-error.log
+    CustomLog ${APACHE_LOG_DIR}/{{.AppName}}-access.log combined
+</VirtualHost>
+

@@ -33,8 +33,9 @@ func TestLoadLocalSourceDefaults(t *testing.T) {
 	if cfg.Poll.Interval != DefaultInterval {
 		t.Fatalf("expected default interval %s, got %s", DefaultInterval, cfg.Poll.Interval)
 	}
-	if cfg.ApacheSitesDir != DefaultApacheSitesDir {
-		t.Fatalf("expected default apache dir, got %s", cfg.ApacheSitesDir)
+	// Apache is optional — no default.
+	if cfg.Exposure.Apache != nil {
+		t.Fatal("expected no apache exposure config by default")
 	}
 	if cfg.RepoRoot() != "/srv/apps-repo" {
 		t.Fatalf("unexpected repo root: %s", cfg.RepoRoot())
@@ -56,7 +57,9 @@ source:
     path: /srv/apps-repo
 poll:
   interval: 30s
-apacheSitesDir: /file/sites
+exposure:
+  apache:
+    sitesDir: /file/sites
 `)
 
 	t.Setenv(LogDirEnvVar, "/env/logs")
@@ -77,8 +80,8 @@ apacheSitesDir: /file/sites
 	if cfg.Poll.Interval != 5*time.Second {
 		t.Fatalf("expected env interval 5s, got %s", cfg.Poll.Interval)
 	}
-	if cfg.ApacheSitesDir != "/env/sites" {
-		t.Fatalf("expected env apache dir, got %s", cfg.ApacheSitesDir)
+	if cfg.Exposure.Apache == nil || cfg.Exposure.Apache.SitesDir != "/env/sites" {
+		t.Fatalf("expected env apache sites dir, got %v", cfg.Exposure.Apache)
 	}
 }
 
@@ -235,5 +238,219 @@ secrets:
 
 	if _, err := LoadFromPath(p); err == nil {
 		t.Fatal("expected validation error when local secrets provider file is missing")
+	}
+}
+
+func TestApacheExposureIsOptional(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+`)
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Exposure.Apache != nil {
+		t.Fatal("expected no apache exposure config when not specified")
+	}
+}
+
+func TestApacheExposureConfiguredFromFile(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+exposure:
+  apache:
+    sitesDir: /etc/apache2/sites-enabled
+`)
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Exposure.Apache == nil {
+		t.Fatal("expected apache exposure config to be set")
+	}
+	if cfg.Exposure.Apache.SitesDir != "/etc/apache2/sites-enabled" {
+		t.Fatalf("unexpected sitesDir: %s", cfg.Exposure.Apache.SitesDir)
+	}
+}
+
+func TestApacheExposureActivatedByEnvVar(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+`)
+	t.Setenv(ApacheSitesDirEnvVar, "/tmp/apache-sites")
+
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Exposure.Apache == nil {
+		t.Fatal("expected apache exposure config to be created by env var")
+	}
+	if cfg.Exposure.Apache.SitesDir != "/tmp/apache-sites" {
+		t.Fatalf("unexpected sitesDir from env: %s", cfg.Exposure.Apache.SitesDir)
+	}
+	if cfg.SettingOrigin("exposure.apache.sitesDir").Source != SettingSourceEnvVar {
+		t.Fatalf("expected env origin for apache sitesDir")
+	}
+}
+
+func TestApacheExposureEnvVarOverridesFile(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+exposure:
+  apache:
+    sitesDir: /file/sites
+`)
+	t.Setenv(ApacheSitesDirEnvVar, "/env/sites")
+
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Exposure.Apache == nil || cfg.Exposure.Apache.SitesDir != "/env/sites" {
+		t.Fatalf("expected env to override file apache sitesDir, got %v", cfg.Exposure.Apache)
+	}
+}
+
+func TestValidateRejectsApacheExposureWithoutSitesDir(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+exposure:
+  apache: {}
+`)
+	if _, err := LoadFromPath(p); err == nil {
+		t.Fatal("expected validation error when apache exposure sitesDir is missing")
+	}
+}
+
+func TestEffectiveSettingsIncludesApacheWhenConfigured(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+exposure:
+  apache:
+    sitesDir: /etc/apache2/sites-enabled
+`)
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := map[string]EffectiveSetting{}
+	for _, s := range cfg.EffectiveSettings() {
+		settings[s.Path] = s
+	}
+	apache, ok := settings["exposure.apache.sitesDir"]
+	if !ok {
+		t.Fatal("expected exposure.apache.sitesDir in effective settings")
+	}
+	if apache.Value != "/etc/apache2/sites-enabled" {
+		t.Fatalf("unexpected apache sitesDir value: %s", apache.Value)
+	}
+	if apache.Origin.Source != SettingSourceConfigFile {
+		t.Fatalf("expected config file origin, got %s", apache.Origin.Source)
+	}
+}
+
+func TestEffectiveSettingsOmitsApacheWhenNotConfigured(t *testing.T) {
+	p := writeConfig(t, `source:
+  local:
+    path: /srv/apps-repo
+`)
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range cfg.EffectiveSettings() {
+		if s.Path == "exposure.apache.sitesDir" {
+			t.Fatal("expected exposure.apache.sitesDir to be absent when apache is not configured")
+		}
+	}
+}
+
+func TestEffectiveSettingsReportOriginsAndResolvedSecretsFile(t *testing.T) {
+	p := writeConfig(t, `logging:
+  dir: /file/logs
+source:
+  local:
+    path: /srv/apps-repo
+secrets:
+  providers:
+    local:
+      file: ./secrets/store.yml
+`)
+
+	t.Setenv(DebugEnvVar, "true")
+
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settings := map[string]EffectiveSetting{}
+	for _, setting := range cfg.EffectiveSettings() {
+		settings[setting.Path] = setting
+	}
+
+	if got := settings["logging.dir"].Origin.Source; got != SettingSourceConfigFile {
+		t.Fatalf("expected logging.dir origin=config, got %s", got)
+	}
+	if got := settings["logging.debug"].Origin.Source; got != SettingSourceEnvVar {
+		t.Fatalf("expected logging.debug origin=env, got %s", got)
+	}
+	if got := settings["poll.interval"].Origin.Source; got != SettingSourceDefault {
+		t.Fatalf("expected poll.interval origin=default, got %s", got)
+	}
+
+	secretsSetting := settings["secrets.providers.local.file"]
+	wantSecretsPath := filepath.Join(filepath.Dir(p), "secrets", "store.yml")
+	if secretsSetting.Value != wantSecretsPath {
+		t.Fatalf("expected resolved secrets path %q, got %q", wantSecretsPath, secretsSetting.Value)
+	}
+	if secretsSetting.Note == "" {
+		t.Fatal("expected secrets setting note to mention relative path resolution")
+	}
+
+	if got := settings["source.repoRoot"].Origin.Source; got != SettingSourceDerived {
+		t.Fatalf("expected source.repoRoot origin=derived, got %s", got)
+	}
+	if settings["source.type"].Value != "local" {
+		t.Fatalf("expected source.type=local, got %q", settings["source.type"].Value)
+	}
+}
+
+func TestEffectiveSettingsRedactGitSecretValues(t *testing.T) {
+	t.Setenv("GIT_TOKEN", "super-secret-token")
+	p := writeConfig(t, `source:
+  git:
+    url: https://example.com/org/repo.git
+    auth:
+      token:
+        value: ${GIT_TOKEN}
+`)
+
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settings := map[string]EffectiveSetting{}
+	for _, setting := range cfg.EffectiveSettings() {
+		settings[setting.Path] = setting
+	}
+
+	token := settings["source.git.auth.token.value"]
+	if !token.Sensitive {
+		t.Fatal("expected token setting to be marked sensitive")
+	}
+	if token.Value != "<redacted>" {
+		t.Fatalf("expected redacted token value, got %q", token.Value)
+	}
+	if token.Origin.Source != SettingSourceConfigFile {
+		t.Fatalf("expected token origin=config, got %s", token.Origin.Source)
 	}
 }

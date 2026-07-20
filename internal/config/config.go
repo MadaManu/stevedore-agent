@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,9 @@ const (
 	DebugEnvVar = "STEVEDORE_DEBUG"
 	// IntervalEnvVar overrides the poll interval (parsed as a Go duration).
 	IntervalEnvVar = "STEVEDORE_POLL_INTERVAL"
-	// ApacheSitesDirEnvVar overrides the apache sites-enabled directory.
+	// ApacheSitesDirEnvVar overrides the apache exposure plugin sites-enabled directory.
+	// Setting this activates the apache provider even if exposure.apache is not present
+	// in config.yml.
 	ApacheSitesDirEnvVar = "STEVEDORE_APACHE_SITES_DIR"
 
 	// ConfigFileName is the fixed configuration filename within STEVEDORE_HOME.
@@ -41,8 +44,6 @@ const (
 	DefaultWorkdir = "/var/lib/stevedore/repo"
 	// DefaultInterval is used when poll.interval is not set.
 	DefaultInterval = 30 * time.Second
-	// DefaultApacheSitesDir mirrors the exposure plugin default.
-	DefaultApacheSitesDir = "/etc/apache2/sites-enabled"
 	// DefaultLogDir is used when no logging directory is configured.
 	DefaultLogDir = "/var/log/stevedore"
 )
@@ -57,15 +58,80 @@ const (
 	AuthSSH   AuthMethod = "ssh"
 )
 
+// SettingSource describes where an effective setting value came from.
+type SettingSource string
+
+const (
+	SettingSourceDefault    SettingSource = "default"
+	SettingSourceConfigFile SettingSource = "config"
+	SettingSourceEnvVar     SettingSource = "env"
+	SettingSourceDerived    SettingSource = "derived"
+)
+
+// SettingOrigin records how an effective setting value was chosen.
+type SettingOrigin struct {
+	Source    SettingSource
+	Reference string
+}
+
+// Describe returns a human-readable description of the setting origin.
+func (o SettingOrigin) Describe() string {
+	switch o.Source {
+	case SettingSourceEnvVar:
+		if o.Reference != "" {
+			return fmt.Sprintf("environment variable %s", o.Reference)
+		}
+		return "environment variable"
+	case SettingSourceConfigFile:
+		if o.Reference != "" {
+			return fmt.Sprintf("config file %s", o.Reference)
+		}
+		return "config file"
+	case SettingSourceDerived:
+		if o.Reference != "" {
+			return fmt.Sprintf("derived from %s", o.Reference)
+		}
+		return "derived value"
+	default:
+		if o.Reference != "" {
+			return fmt.Sprintf("built-in default %s", o.Reference)
+		}
+		return "built-in default"
+	}
+}
+
+// EffectiveSetting is a single resolved configuration setting suitable for
+// diagnostics such as `stevedore-agent doctor`.
+type EffectiveSetting struct {
+	Path      string
+	Value     string
+	Origin    SettingOrigin
+	Sensitive bool
+	Note      string
+}
+
 // Config is the top-level agent configuration. It is loaded and validated once
 // at process startup and then treated as immutable for the life of the process.
 type Config struct {
-	Logging        Logging `yaml:"logging"`
-	Source         Source  `yaml:"source"`
-	Secrets        Secrets `yaml:"secrets"`
-	Poll           Poll    `yaml:"poll"`
-	ApacheSitesDir string  `yaml:"apacheSitesDir"`
-	path           string  `yaml:"-"`
+	Logging  Logging                  `yaml:"logging"`
+	Source   Source                   `yaml:"source"`
+	Secrets  Secrets                  `yaml:"secrets"`
+	Poll     Poll                     `yaml:"poll"`
+	Exposure ExposureConfig           `yaml:"exposure"`
+	path     string                   `yaml:"-"`
+	origins  map[string]SettingOrigin `yaml:"-"`
+}
+
+// ExposureConfig groups all exposure provider configuration. Each provider is
+// optional and only required when at least one app uses that provider.
+type ExposureConfig struct {
+	Apache *ApacheExposureConfig `yaml:"apache"`
+}
+
+// ApacheExposureConfig configures the Apache virtual-host exposure plugin.
+// Required only when at least one app sets expose.provider to "apache".
+type ApacheExposureConfig struct {
+	SitesDir string `yaml:"sitesDir"`
 }
 
 // Secrets configures secret provider backends used by manifest interpolation.
@@ -182,6 +248,11 @@ func LoadFromPath(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
+	var doc yaml.Node
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+
 	// Start with base config containing all defaults
 	cfg := newBaseConfig()
 	cfg.path = path
@@ -190,6 +261,7 @@ func LoadFromPath(path string) (*Config, error) {
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
+	cfg.applyFileOrigins(path, &doc)
 
 	// Apply git-specific defaults if git source is being used
 	if cfg.Source.Git != nil {
@@ -212,17 +284,16 @@ func LoadFromPath(path string) (*Config, error) {
 
 // newBaseConfig returns a Config with all default values already set.
 func newBaseConfig() Config {
-	return Config{
+	cfg := Config{
 		Logging: Logging{
 			Dir:   DefaultLogDir,
 			Debug: false,
 		},
-		Poll: Poll{
-			Interval: DefaultInterval,
-		},
-		ApacheSitesDir: DefaultApacheSitesDir,
-		Source:         Source{}, // Will be populated from YAML; no defaults here to avoid conflicts
+		Poll:   Poll{Interval: DefaultInterval},
+		Source: Source{}, // Will be populated from YAML; no defaults here to avoid conflicts
 	}
+	cfg.initOrigins()
+	return cfg
 }
 
 func resolveConfigPath() string {
@@ -232,25 +303,37 @@ func resolveConfigPath() string {
 
 // applyEnvOverrides applies environment variable overrides on top of the config.
 func (c *Config) applyEnvOverrides() {
-	if logDir, _ := env.StringDefault(LogDirEnvVar, ""); logDir != "" {
+	if logDir, ok := lookupNonEmptyEnv(LogDirEnvVar); ok {
 		c.Logging.Dir = logDir
+		c.setOrigin("logging.dir", envOrigin(LogDirEnvVar))
 	}
 
-	if debug, err := env.BoolDefault(DebugEnvVar, c.Logging.Debug); err == nil {
-		c.Logging.Debug = debug
+	if raw, ok := os.LookupEnv(DebugEnvVar); ok {
+		if debug, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
+			c.Logging.Debug = debug
+			c.setOrigin("logging.debug", envOrigin(DebugEnvVar))
+		}
 	}
 
-	if interval, err := env.DurationDefault(IntervalEnvVar, 0); err == nil && interval > 0 {
-		c.Poll.Interval = interval
+	if raw, ok := os.LookupEnv(IntervalEnvVar); ok {
+		if interval, err := time.ParseDuration(strings.TrimSpace(raw)); err == nil && interval > 0 {
+			c.Poll.Interval = interval
+			c.setOrigin("poll.interval", envOrigin(IntervalEnvVar))
+		}
 	}
 
-	if apacheSitesDir, _ := env.StringDefault(ApacheSitesDirEnvVar, ""); apacheSitesDir != "" {
-		c.ApacheSitesDir = apacheSitesDir
+	if apacheSitesDir, ok := lookupNonEmptyEnv(ApacheSitesDirEnvVar); ok {
+		if c.Exposure.Apache == nil {
+			c.Exposure.Apache = &ApacheExposureConfig{}
+		}
+		c.Exposure.Apache.SitesDir = apacheSitesDir
+		c.setOrigin("exposure.apache.sitesDir", envOrigin(ApacheSitesDirEnvVar))
 	}
 
 	if c.Source.Git != nil {
-		if workdir, _ := env.StringDefault(WorkdirEnvVar, ""); workdir != "" {
+		if workdir, ok := lookupNonEmptyEnv(WorkdirEnvVar); ok {
 			c.Source.Git.Workdir = workdir
+			c.setOrigin("source.git.workdir", envOrigin(WorkdirEnvVar))
 		}
 		// Expand env references in secret-bearing fields.
 		if c.Source.Git.Auth.Token != nil {
@@ -290,6 +373,9 @@ func (c *Config) validate() error {
 	}
 	if c.Secrets.Providers.Local != nil && strings.TrimSpace(c.Secrets.Providers.Local.File) == "" {
 		return errors.New("secrets.providers.local.file is required when local secrets provider is configured")
+	}
+	if c.Exposure.Apache != nil && strings.TrimSpace(c.Exposure.Apache.SitesDir) == "" {
+		return errors.New("exposure.apache.sitesDir is required when the apache exposure provider is configured")
 	}
 	return nil
 }
@@ -367,4 +453,185 @@ func (c *Config) LocalSecretsFile() string {
 		return filepath.Clean(p)
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(c.path), p))
+}
+
+// SettingOrigin returns the provenance for an effective setting.
+func (c *Config) SettingOrigin(path string) SettingOrigin {
+	if c == nil {
+		return SettingOrigin{}
+	}
+	if origin, ok := c.origins[path]; ok {
+		return origin
+	}
+	return SettingOrigin{}
+}
+
+// EffectiveSettings returns a stable list of effective settings and where each
+// value came from.
+func (c *Config) EffectiveSettings() []EffectiveSetting {
+	if c == nil {
+		return nil
+	}
+
+	settings := []EffectiveSetting{
+		{Path: "logging.dir", Value: c.Logging.Dir, Origin: c.SettingOrigin("logging.dir")},
+		{Path: "logging.debug", Value: strconv.FormatBool(c.Logging.Debug), Origin: c.SettingOrigin("logging.debug")},
+		{Path: "poll.interval", Value: c.Poll.Interval.String(), Origin: c.SettingOrigin("poll.interval")},
+	}
+
+	if c.Source.Local != nil {
+		settings = append(settings,
+			EffectiveSetting{Path: "source.type", Value: "local", Origin: SettingOrigin{Source: SettingSourceDerived, Reference: "source.local"}},
+			EffectiveSetting{Path: "source.local.path", Value: c.Source.Local.Path, Origin: c.SettingOrigin("source.local.path")},
+			EffectiveSetting{Path: "source.repoRoot", Value: c.RepoRoot(), Origin: SettingOrigin{Source: SettingSourceDerived, Reference: "source.local.path"}},
+		)
+	}
+
+	if c.Source.Git != nil {
+		settings = append(settings,
+			EffectiveSetting{Path: "source.type", Value: "git", Origin: SettingOrigin{Source: SettingSourceDerived, Reference: "source.git"}},
+			EffectiveSetting{Path: "source.git.url", Value: c.Source.Git.URL, Origin: c.SettingOrigin("source.git.url")},
+			EffectiveSetting{Path: "source.git.branch", Value: c.Source.Git.Branch, Origin: c.SettingOrigin("source.git.branch")},
+			EffectiveSetting{Path: "source.git.workdir", Value: c.Source.Git.Workdir, Origin: c.SettingOrigin("source.git.workdir")},
+			EffectiveSetting{Path: "source.git.auth.method", Value: string(c.Source.Git.Auth.Method()), Origin: authMethodOrigin(c)},
+			EffectiveSetting{Path: "source.repoRoot", Value: c.RepoRoot(), Origin: SettingOrigin{Source: SettingSourceDerived, Reference: "source.git.workdir"}},
+		)
+
+		switch c.Source.Git.Auth.Method() {
+		case AuthToken:
+			settings = append(settings, EffectiveSetting{Path: "source.git.auth.token.value", Value: redactValue(c.Source.Git.Auth.Token.Value), Origin: c.SettingOrigin("source.git.auth.token.value"), Sensitive: true})
+		case AuthBasic:
+			settings = append(settings,
+				EffectiveSetting{Path: "source.git.auth.basic.username", Value: redactValue(c.Source.Git.Auth.Basic.Username), Origin: c.SettingOrigin("source.git.auth.basic.username"), Sensitive: true},
+				EffectiveSetting{Path: "source.git.auth.basic.password", Value: redactValue(c.Source.Git.Auth.Basic.Password), Origin: c.SettingOrigin("source.git.auth.basic.password"), Sensitive: true},
+			)
+		case AuthSSH:
+			settings = append(settings, EffectiveSetting{Path: "source.git.auth.ssh.keyPath", Value: c.Source.Git.Auth.SSH.KeyPath, Origin: c.SettingOrigin("source.git.auth.ssh.keyPath")})
+		}
+	}
+
+	if c.Secrets.Providers.Local != nil {
+		note := ""
+		resolved := c.LocalSecretsFile()
+		if raw := strings.TrimSpace(c.Secrets.Providers.Local.File); raw != "" && raw != resolved {
+			note = fmt.Sprintf("resolved from %q relative to config file directory", raw)
+		}
+		settings = append(settings, EffectiveSetting{Path: "secrets.providers.local.file", Value: resolved, Origin: c.SettingOrigin("secrets.providers.local.file"), Note: note})
+	}
+
+	if c.Exposure.Apache != nil {
+		settings = append(settings, EffectiveSetting{Path: "exposure.apache.sitesDir", Value: c.Exposure.Apache.SitesDir, Origin: c.SettingOrigin("exposure.apache.sitesDir")})
+	}
+
+	return settings
+}
+
+func (c *Config) initOrigins() {
+	c.origins = map[string]SettingOrigin{
+		"logging.dir":   {Source: SettingSourceDefault},
+		"logging.debug": {Source: SettingSourceDefault},
+		"poll.interval": {Source: SettingSourceDefault},
+	}
+}
+
+func (c *Config) setOrigin(path string, origin SettingOrigin) {
+	if c.origins == nil {
+		c.initOrigins()
+	}
+	c.origins[path] = origin
+}
+
+func (c *Config) applyFileOrigins(path string, doc *yaml.Node) {
+	for _, settingPath := range []string{
+		"logging.dir",
+		"logging.debug",
+		"source.local.path",
+		"source.git.url",
+		"source.git.branch",
+		"source.git.workdir",
+		"source.git.auth.token.value",
+		"source.git.auth.basic.username",
+		"source.git.auth.basic.password",
+		"source.git.auth.ssh.keyPath",
+		"secrets.providers.local.file",
+		"poll.interval",
+		"exposure.apache.sitesDir",
+	} {
+		if yamlPathNode(doc, strings.Split(settingPath, ".")...) != nil {
+			c.setOrigin(settingPath, configFileOrigin(path))
+		}
+	}
+}
+
+func yamlPathNode(root *yaml.Node, segments ...string) *yaml.Node {
+	if root == nil {
+		return nil
+	}
+	node := root
+	if node.Kind == yaml.DocumentNode {
+		if len(node.Content) == 0 {
+			return nil
+		}
+		node = node.Content[0]
+	}
+	for _, segment := range segments {
+		if node.Kind != yaml.MappingNode {
+			return nil
+		}
+		found := false
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == segment {
+				node = node.Content[i+1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	return node
+}
+
+func configFileOrigin(path string) SettingOrigin {
+	return SettingOrigin{Source: SettingSourceConfigFile, Reference: path}
+}
+
+func envOrigin(name string) SettingOrigin {
+	return SettingOrigin{Source: SettingSourceEnvVar, Reference: name}
+}
+
+func lookupNonEmptyEnv(name string) (string, bool) {
+	v, ok := os.LookupEnv(name)
+	if !ok {
+		return "", false
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", false
+	}
+	return v, true
+}
+
+func authMethodOrigin(c *Config) SettingOrigin {
+	if c == nil || c.Source.Git == nil {
+		return SettingOrigin{Source: SettingSourceDerived, Reference: "source.git.auth"}
+	}
+	switch c.Source.Git.Auth.Method() {
+	case AuthToken:
+		return c.SettingOrigin("source.git.auth.token.value")
+	case AuthBasic:
+		return c.SettingOrigin("source.git.auth.basic.username")
+	case AuthSSH:
+		return c.SettingOrigin("source.git.auth.ssh.keyPath")
+	default:
+		return SettingOrigin{Source: SettingSourceDerived, Reference: "source.git.auth"}
+	}
+}
+
+func redactValue(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return ""
+	}
+	return "<redacted>"
 }

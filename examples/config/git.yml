@@ -37,4 +37,9 @@ source:
 poll:
   interval: 60s
 
-apacheSitesDir: /etc/apache2/sites-enabled
+# Exposure providers are optional — configure only the providers used by your apps.
+# exposure:
+#   apache:
+#     # Required when any app sets expose.provider: apache.
+#     # Overridable by STEVEDORE_APACHE_SITES_DIR.
+#     sitesDir: /etc/apache2/sites-enabled

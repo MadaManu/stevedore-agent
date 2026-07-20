@@ -1,0 +1,25 @@
+image:
+  repository: nginx
+  tag: 1.31.3
+container:
+  name: demo-api-ssl
+restartPolicy: always
+ports:
+  - name: http
+    containerPort: 80
+    hostPort: 8082       # hostPort must be reachable by the Apache proxy on localhost
+environment:
+  NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+  TOKEN_VALUE_SECRET: ${local:api/token}
+network:
+  name: demo
+expose:
+  enabled: true
+  provider: apache
+  config:
+    domain: demo-api.example.com        # required — must resolve to this server's IP
+    ssl: true                           # enable HTTPS via Let's Encrypt
+    email: ops@example.com              # required — Let's Encrypt account / renewal alerts
+    # webroot: /var/www/letsencrypt     # optional — ACME challenge dir (default shown)
+    # port: 8082                        # optional — override proxy target port
+

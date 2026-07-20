@@ -1,10 +1,14 @@
 package stevedore
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"stevedore-agent/internal/docker"
 	"stevedore-agent/internal/manifest"
+	"stevedore-agent/internal/plugins"
+	"stevedore-agent/internal/reconciler"
 )
 
 type hashRuntimeFake struct {
@@ -194,5 +198,98 @@ func TestComputeDesiredStateHash_ChangesWhenDesiredConfigChanges(t *testing.T) {
 
 	if before == after {
 		t.Fatal("expected desired hash to change when desired environment changes")
+	}
+}
+
+func containsStringRun(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(sub); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+			return false
+		}())
+}
+
+// pullErrorRuntime wraps hashRuntimeFake but returns an error from PullImage
+// for containers whose image matches a configured value.
+type pullErrorRuntime struct {
+	hashRuntimeFake
+	failImage  string
+	pulledApps []string
+}
+
+func (f *pullErrorRuntime) PullImage(image string) error {
+	f.pulledApps = append(f.pulledApps, image)
+	if image == f.failImage {
+		return errors.New("simulated pull error")
+	}
+	return nil
+}
+
+func TestReconcileApps_ContinuesAfterError(t *testing.T) {
+	rt := &pullErrorRuntime{
+		failImage: "nginx:fail",
+		hashRuntimeFake: hashRuntimeFake{
+			existsByName:  map[string]bool{},
+			runningByName: map[string]bool{},
+			imageByName:   map[string]string{},
+			labelByName:   map[string]string{},
+			portsByName:   map[string]map[int]int{},
+			envByName:     map[string]map[string]string{},
+			networkByName: map[string]string{},
+		},
+	}
+
+	apps := []manifest.Application{
+		{Metadata: manifest.Metadata{Name: "failing-app"}, Image: manifest.ImageConfig{Repository: "nginx", Tag: "fail"}},
+		{Metadata: manifest.Metadata{Name: "ok-app"}, Image: manifest.ImageConfig{Repository: "nginx", Tag: "ok"}},
+	}
+
+	r := &reconciler.Reconciler{Runtime: rt, Plugins: plugins.NewManager()}
+	errs := reconcileApps(context.Background(), r, apps)
+
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+	if !containsStringRun(errs[0].Error(), "failing-app") {
+		t.Fatalf("expected error to mention 'failing-app', got: %v", errs[0])
+	}
+
+	// Both images must have been attempted.
+	if len(rt.pulledApps) != 2 {
+		t.Fatalf("expected 2 pull attempts, got %d: %v", len(rt.pulledApps), rt.pulledApps)
+	}
+}
+
+func TestReconcileApps_NoErrors(t *testing.T) {
+	rt := &pullErrorRuntime{
+		failImage: "", // never fail
+		hashRuntimeFake: hashRuntimeFake{
+			existsByName:  map[string]bool{},
+			runningByName: map[string]bool{},
+			imageByName:   map[string]string{},
+			labelByName:   map[string]string{},
+			portsByName:   map[string]map[int]int{},
+			envByName:     map[string]map[string]string{},
+			networkByName: map[string]string{},
+		},
+	}
+
+	apps := []manifest.Application{
+		{Metadata: manifest.Metadata{Name: "app-a"}, Image: manifest.ImageConfig{Repository: "nginx", Tag: "1.25"}},
+		{Metadata: manifest.Metadata{Name: "app-b"}, Image: manifest.ImageConfig{Repository: "nginx", Tag: "1.27"}},
+	}
+
+	r := &reconciler.Reconciler{Runtime: rt, Plugins: plugins.NewManager()}
+	errs := reconcileApps(context.Background(), r, apps)
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %d: %v", len(errs), errs)
+	}
+	if len(rt.pulledApps) != 2 {
+		t.Fatalf("expected 2 pull attempts, got %d", len(rt.pulledApps))
 	}
 }

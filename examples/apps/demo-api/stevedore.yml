@@ -9,12 +9,16 @@ ports:
     containerPort: 80
     hostPort: 8081
 environment:
-  NGINX_ENTRYPOINT_QUIET_LOGS: "52"
+  NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+  TOKEN_VALUE_SECRET: ${local:api/token}
 network:
-  name: demo # The apps don't need to be on the same network
+  name: demo
 expose:
-  enabled: true # I think this is implied if you specify it - why is it needed?
+  enabled: true
   provider: apache
   config:
-    domain: demo-api.local
-    ssl: false
+    domain: demo-api.example.com   # required: public hostname Apache will serve
+    ssl: false                     # set to true to enable HTTPS via Let's Encrypt
+    # email: ops@example.com       # required when ssl: true  (Let's Encrypt account)
+    # webroot: /var/www/letsencrypt  # optional: ACME challenge directory (default shown)
+    # port: 8081                   # optional: override proxy target port (defaults to first hostPort)

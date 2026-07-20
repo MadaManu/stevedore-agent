@@ -82,7 +82,7 @@ func runAgent() error {
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	r := buildReconciler(cfg.ApacheSitesDir)
+	r := buildReconciler(cfg)
 	secretResolver, err := buildSecretResolver(cfg)
 	if err != nil {
 		return err
@@ -123,7 +123,7 @@ Create a configuration file at:
 
 You can point stevedore to another config location by setting %s to the folder that contains %s:
   export %s=/path/to/stevedore
-  stevedore run
+  stevedore-agent run
 
 Minimal example %s:
   source:
@@ -211,13 +211,11 @@ func reconcileCycle(ctx context.Context, cfg *config.Config, r *reconciler.Recon
 	)
 	slog.DebugContext(ctx, "applications loaded", slog.Int("count", len(apps)))
 
-	for _, app := range apps {
-		slog.DebugContext(ctx, "reconciling app", slog.String("app", app.Metadata.Name), slog.String("container", app.ContainerName()))
-		if _, err := r.Reconcile(app); err != nil {
-			slog.ErrorContext(logging.SecurityContext(context.Background(), "reconcile"), "reconcile failed", slog.String("app", app.Metadata.Name), slog.String("error", err.Error()))
-			return lastState, err
+	if errs := reconcileApps(ctx, r, apps); len(errs) > 0 {
+		for _, e := range errs {
+			slog.ErrorContext(logging.SecurityContext(context.Background(), "reconcile"), "reconcile failed", slog.String("error", e.Error()))
 		}
-		slog.InfoContext(ctx, "application reconciled", slog.String("app", app.Metadata.Name))
+		return lastState, errors.Join(errs...)
 	}
 
 	postRuntimeHash, err := computeRuntimeStateHash(r.Runtime, apps)
@@ -342,6 +340,23 @@ func sourceTypeName(cfg *config.Config) string {
 		return "git"
 	}
 	return "local"
+}
+
+// reconcileApps iterates over every application and reconciles each one
+// independently. Errors from individual apps are collected and returned so that
+// a failure in one container does not prevent the remaining containers from
+// being reconciled.
+func reconcileApps(ctx context.Context, r *reconciler.Reconciler, apps []manifest.Application) []error {
+	var errs []error
+	for _, app := range apps {
+		slog.DebugContext(ctx, "reconciling app", slog.String("app", app.Metadata.Name), slog.String("container", app.ContainerName()))
+		if _, err := r.Reconcile(app); err != nil {
+			errs = append(errs, fmt.Errorf("app %s: %w", app.Metadata.Name, err))
+			continue
+		}
+		slog.InfoContext(ctx, "application reconciled", slog.String("app", app.Metadata.Name))
+	}
+	return errs
 }
 
 func buildSecretResolver(cfg *config.Config) (*secrets.Resolver, error) {
