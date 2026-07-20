@@ -93,7 +93,10 @@ func runAgent() error {
 	ticker := time.NewTicker(cfg.Poll.Interval)
 	defer ticker.Stop()
 
+	cycleCount := 0
 	for {
+		cycleCount++
+		slog.DebugContext(ctx, "starting reconcile cycle", slog.Int("cycle", cycleCount))
 		newState, err := reconcileCycle(ctx, cfg, r, secretResolver, lastState)
 		if err != nil {
 			slog.ErrorContext(logging.SecurityContext(context.Background(), "run"), "reconcile cycle failed", slog.String("error", err.Error()))
@@ -101,11 +104,13 @@ func runAgent() error {
 			lastState = newState
 		}
 
+		slog.DebugContext(ctx, "reconcile cycle complete, waiting for next tick", slog.Int("cycle", cycleCount), slog.Duration("interval", cfg.Poll.Interval))
 		select {
 		case <-signalCtx.Done():
 			slog.InfoContext(ctx, "shutdown signal received, stopping agent")
 			return nil
 		case <-ticker.C:
+			slog.DebugContext(ctx, "ticker fired, continuing to next cycle")
 		}
 	}
 }
