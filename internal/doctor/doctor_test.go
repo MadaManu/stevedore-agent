@@ -236,3 +236,49 @@ source:
 		}
 	}
 }
+
+func TestRunWithDeps_GitWorkdirDefaultsToStevedoreHomeGitSource(t *testing.T) {
+	home := t.TempDir()
+	logs := filepath.Join(home, "logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, filepath.Join(home, config.ConfigFileName), `logging:
+  dir: `+logs+`
+source:
+  git:
+    url: https://example.com/org/repo.git
+`)
+
+	t.Setenv(config.HomeEnvVar, home)
+
+	report := runWithDeps(testDeps())
+	if report.FailureCount() != 0 {
+		t.Fatalf("expected zero failures, got %d\n%s", report.FailureCount(), RenderText(report))
+	}
+
+	settings := settingsByPath(report.Settings)
+	workdir := settings["source.git.workdir"]
+	want := filepath.Join(home, config.DefaultGitSourceDirName)
+	if workdir.Value != want {
+		t.Fatalf("expected source.git.workdir=%q, got %q", want, workdir.Value)
+	}
+	if workdir.Origin.Source != config.SettingSourceDerived {
+		t.Fatalf("expected source.git.workdir origin=derived, got %s", workdir.Origin.Source)
+	}
+
+	var gitWorkdirCheck *CheckResult
+	for i := range report.Checks {
+		if report.Checks[i].Name == "git workdir" {
+			gitWorkdirCheck = &report.Checks[i]
+			break
+		}
+	}
+	if gitWorkdirCheck == nil {
+		t.Fatal("expected git workdir check")
+	}
+	if len(gitWorkdirCheck.Tried) == 0 || gitWorkdirCheck.Tried[0] != want {
+		t.Fatalf("expected git workdir check to try %q, got %v", want, gitWorkdirCheck.Tried)
+	}
+}

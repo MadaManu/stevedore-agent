@@ -97,7 +97,7 @@ present** — there is no `type` or `method` discriminator field.
 | `source.local.path` | string | Repo root (containing `apps/`). Required for a local source. |
 | `source.git.url` | string | Git remote URL. Required for a git source. |
 | `source.git.branch` | string | Branch to track. Default `main`. |
-| `source.git.workdir` | string | Checkout location. Default `/var/lib/stevedore/repo`. |
+| `source.git.workdir` | string | Checkout location. Default `<STEVEDORE_HOME>/git-source` (or `/etc/stevedore/git-source` when `STEVEDORE_HOME` is unset). |
 | `source.git.auth.token.value` | string | Token (present ⇒ token auth). Supports `${ENV}`. |
 | `source.git.auth.basic.username` / `password` | string | Basic auth (present ⇒ basic auth). Supports `${ENV}`. |
 | `source.git.auth.ssh.keyPath` | string | Private key path (present ⇒ ssh auth). Supports `${ENV}`. |

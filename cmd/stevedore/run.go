@@ -199,7 +199,7 @@ func reconcileCycle(ctx context.Context, cfg *config.Config, r *reconciler.Recon
 	)
 
 	if currentManifestHash == lastState.ManifestHash && desiredHash == lastState.DesiredHash && runtimeHash == lastState.RuntimeHash && lastState.ManifestHash != "" && lastState.DesiredHash != "" && lastState.RuntimeHash != "" {
-		slog.DebugContext(ctx, "no manifest or runtime changes detected, sleeping", slog.Duration("interval", cfg.Poll.Interval))
+		slog.InfoContext(ctx, "no manifest or runtime changes detected, sleeping", slog.Duration("interval", cfg.Poll.Interval))
 		return currentState, nil
 	}
 

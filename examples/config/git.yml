@@ -18,8 +18,10 @@ source:
   git:
     url: https://github.com/your-org/your-apps-repo.git
     branch: main
-    # Where the repository is checked out. Overridable by STEVEDORE_WORKDIR.
-    workdir: /var/lib/stevedore/repo
+    # Optional: where the repository is checked out.
+    # Default: <STEVEDORE_HOME>/git-source (or /etc/stevedore/git-source).
+    # Overridable by STEVEDORE_WORKDIR.
+    # workdir: /etc/stevedore/git-source
     auth:
       # token auth (GitHub/GitLab personal access or app tokens):
       token:

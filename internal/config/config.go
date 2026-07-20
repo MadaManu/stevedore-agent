@@ -40,8 +40,9 @@ const (
 	ConfigFileName = "config.yml"
 	// DefaultHomeDir is the default stevedore home when STEVEDORE_HOME is unset.
 	DefaultHomeDir = "/etc/stevedore"
-	// DefaultWorkdir is where git repositories are cloned when not overridden.
-	DefaultWorkdir = "/var/lib/stevedore/repo"
+	// DefaultGitSourceDirName is the directory under STEVEDORE_HOME used as the
+	// default git checkout path when source.git.workdir is omitted.
+	DefaultGitSourceDirName = "git-source"
 	// DefaultInterval is used when poll.interval is not set.
 	DefaultInterval = 30 * time.Second
 	// DefaultLogDir is used when no logging directory is configured.
@@ -269,7 +270,8 @@ func LoadFromPath(path string) (*Config, error) {
 			cfg.Source.Git.Branch = "main"
 		}
 		if strings.TrimSpace(cfg.Source.Git.Workdir) == "" {
-			cfg.Source.Git.Workdir = DefaultWorkdir
+			cfg.Source.Git.Workdir = defaultGitWorkdir()
+			cfg.setOrigin("source.git.workdir", gitWorkdirDefaultOrigin())
 		}
 	}
 
@@ -297,8 +299,24 @@ func newBaseConfig() Config {
 }
 
 func resolveConfigPath() string {
-	home, _ := env.StringDefault(HomeEnvVar, DefaultHomeDir)
+	home := resolveHomeDir()
 	return filepath.Join(filepath.Clean(home), ConfigFileName)
+}
+
+func resolveHomeDir() string {
+	home, _ := env.StringDefault(HomeEnvVar, DefaultHomeDir)
+	return home
+}
+
+func defaultGitWorkdir() string {
+	return filepath.Join(filepath.Clean(resolveHomeDir()), DefaultGitSourceDirName)
+}
+
+func gitWorkdirDefaultOrigin() SettingOrigin {
+	if home, ok := lookupNonEmptyEnv(HomeEnvVar); ok {
+		return SettingOrigin{Source: SettingSourceDerived, Reference: fmt.Sprintf("%s (%s)", HomeEnvVar, home)}
+	}
+	return SettingOrigin{Source: SettingSourceDerived, Reference: DefaultHomeDir}
 }
 
 // applyEnvOverrides applies environment variable overrides on top of the config.

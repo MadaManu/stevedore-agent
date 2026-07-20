@@ -38,6 +38,10 @@ STEVEDORE_DEBUG=true stevedore-agent doctor
 
 It does **not** mutate the system and does **not** test remote git connectivity.
 
+When `source.git.workdir` is omitted, doctor reports and validates the effective
+default checkout directory at `<STEVEDORE_HOME>/git-source` (or
+`/etc/stevedore/git-source` when `STEVEDORE_HOME` is unset).
+
 ## Example output
 
 ```text

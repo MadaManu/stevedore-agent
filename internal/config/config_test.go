@@ -134,6 +134,10 @@ poll:
 	if cfg.Source.Git.Workdir == "" {
 		t.Fatal("expected git workdir default to be set")
 	}
+	wantDefaultWorkdir := filepath.Join(DefaultHomeDir, DefaultGitSourceDirName)
+	if cfg.Source.Git.Workdir != wantDefaultWorkdir {
+		t.Fatalf("expected default git workdir %q, got %q", wantDefaultWorkdir, cfg.Source.Git.Workdir)
+	}
 	if cfg.Source.Git.Auth.Method() != AuthToken {
 		t.Fatalf("expected token auth, got %s", cfg.Source.Git.Auth.Method())
 	}
@@ -142,6 +146,47 @@ poll:
 	}
 	if cfg.RepoRoot() != cfg.Source.Git.Workdir {
 		t.Fatalf("git repo root should equal workdir")
+	}
+}
+
+func TestLoadGitSourceDefaultsWorkdirFromStevedoreHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(HomeEnvVar, home)
+	p := writeConfig(t, `source:
+  git:
+    url: https://example.com/org/repo.git
+`)
+
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := filepath.Join(home, DefaultGitSourceDirName)
+	if cfg.Source.Git.Workdir != want {
+		t.Fatalf("expected git workdir %q, got %q", want, cfg.Source.Git.Workdir)
+	}
+	if got := cfg.SettingOrigin("source.git.workdir").Source; got != SettingSourceDerived {
+		t.Fatalf("expected source.git.workdir origin=derived, got %s", got)
+	}
+}
+
+func TestLoadGitSourceWorkdirEnvOverrideBeatsHomeDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(HomeEnvVar, home)
+	t.Setenv(WorkdirEnvVar, "/env/override-workdir")
+	p := writeConfig(t, `source:
+  git:
+    url: https://example.com/org/repo.git
+`)
+
+	cfg, err := LoadFromPath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Source.Git.Workdir != "/env/override-workdir" {
+		t.Fatalf("expected env workdir override, got %q", cfg.Source.Git.Workdir)
 	}
 }
 
