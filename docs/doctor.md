@@ -37,6 +37,10 @@ STEVEDORE_DEBUG=true stevedore-agent doctor
   - `exposure.apache.sitesDir` is only checked when the apache provider is configured
 
 It does **not** mutate the system and does **not** test remote git connectivity.
+It also does **not** pre-create Docker networks or verify container network
+attachments; those are handled during `stevedore-agent run` reconciliation.
+Likewise, it does **not** pre-create app `volumes[].hostPath` directories; those
+are created during reconcile when each container spec is built.
 
 When `source.git.workdir` is omitted, doctor reports and validates the effective
 default checkout directory at `<STEVEDORE_HOME>/git-source` (or

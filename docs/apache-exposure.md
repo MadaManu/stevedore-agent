@@ -5,6 +5,10 @@ configuration files for your applications.  On each reconcile cycle it writes a
 `.conf` file to the configured `sites-enabled` directory, handles Let's Encrypt
 certificate issuance/renewal when SSL is requested, and reloads Apache.
 
+Apache proxying is based on the app's host port, so exposure behavior is the
+same whether an app is attached to one or many Docker networks.
+Exposure behavior is also independent of the number of bind mounts configured.
+
 ---
 
 ## Host prerequisites
@@ -66,6 +70,13 @@ ports:
   - name: http
     containerPort: 80
     hostPort: 8081
+volumes:
+  - name: data
+    hostPath: /var/lib/stevedore/demo-api/data
+    mountPath: /srv/data
+networks:
+  - name: demo
+  - name: demo-shared
 expose:
   enabled: true
   provider: apache
@@ -111,6 +122,13 @@ ports:
   - name: http
     containerPort: 80
     hostPort: 8081
+volumes:
+  - name: data
+    hostPath: /var/lib/stevedore/demo-api/data
+    mountPath: /srv/data
+networks:
+  - name: demo
+  - name: demo-shared
 expose:
   enabled: true
   provider: apache

@@ -7,7 +7,8 @@ import (
 )
 
 func BuildContainerSpec(app manifest.Application, hash string) (ContainerSpec, error) {
-	for _, v := range app.Volumes {
+	orderedVolumes := app.OrderedVolumeMappings()
+	for _, v := range orderedVolumes {
 		if err := os.MkdirAll(v.HostPath, 0o755); err != nil {
 			return ContainerSpec{}, err
 		}
@@ -18,8 +19,8 @@ func BuildContainerSpec(app manifest.Application, hash string) (ContainerSpec, e
 		ports = append(ports, PortMapping{HostPort: p.HostPort, ContainerPort: p.ContainerPort})
 	}
 
-	volumes := make([]VolumeMapping, 0, len(app.Volumes))
-	for _, v := range app.Volumes {
+	volumes := make([]VolumeMapping, 0, len(orderedVolumes))
+	for _, v := range orderedVolumes {
 		volumes = append(volumes, VolumeMapping{HostPath: v.HostPath, MountPath: v.MountPath})
 	}
 
@@ -28,6 +29,7 @@ func BuildContainerSpec(app manifest.Application, hash string) (ContainerSpec, e
 		"stevedore.dev/app":     app.Metadata.Name,
 		"stevedore.dev/hash":    hash,
 	}
+	networkNames := app.OrderedNetworkNames()
 
 	return ContainerSpec{
 		Name:          app.ContainerName(),
@@ -36,7 +38,8 @@ func BuildContainerSpec(app manifest.Application, hash string) (ContainerSpec, e
 		Ports:         ports,
 		Volumes:       volumes,
 		Environment:   app.Environment,
-		NetworkName:   app.Network.Name,
+		NetworkName:   app.PrimaryNetworkName(),
+		NetworkNames:  networkNames,
 		Labels:        labels,
 	}, nil
 }

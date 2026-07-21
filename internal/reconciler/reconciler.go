@@ -36,14 +36,14 @@ func (r *Reconciler) Reconcile(app manifest.Application) (*ReconcileResult, erro
 		return result, err
 	}
 
-	if app.Network.Name != "" {
-		exists, err := r.Runtime.NetworkExists(app.Network.Name)
+	for _, networkName := range app.NetworkNames() {
+		exists, err := r.Runtime.NetworkExists(networkName)
 		if err != nil {
 			return result, err
 		}
 		if !exists {
-			slog.InfoContext(logging.BusinessContext(ctx, "reconcile"), "reconcile action", slog.String("app", app.Metadata.Name), slog.String("action", "creating network: "+app.Network.Name))
-			if err := r.Runtime.CreateNetwork(app.Network.Name); err != nil {
+			slog.InfoContext(logging.BusinessContext(ctx, "reconcile"), "reconcile action", slog.String("app", app.Metadata.Name), slog.String("action", "creating network: "+networkName))
+			if err := r.Runtime.CreateNetwork(networkName); err != nil {
 				return result, err
 			}
 		}
@@ -165,5 +165,19 @@ func (r *Reconciler) needsUpdate(app manifest.Application, desiredHash, desiredI
 	if err != nil {
 		return false, err
 	}
-	return currentHash != desiredHash, nil
+	if currentHash != desiredHash {
+		return true, nil
+	}
+	currentNetworks, err := r.Runtime.ContainerNetworks(app.ContainerName())
+	if err != nil {
+		return false, err
+	}
+	if !stringSlicesEqual(currentNetworks, app.NetworkNames()) {
+		return true, nil
+	}
+	currentVolumes, err := r.Runtime.ContainerVolumes(app.ContainerName())
+	if err != nil {
+		return false, err
+	}
+	return !volumeMappingsEqual(currentVolumes, desiredVolumeMappings(app)), nil
 }

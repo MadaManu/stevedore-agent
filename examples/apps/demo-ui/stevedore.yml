@@ -8,6 +8,14 @@ ports:
     hostPort: 8080
 environment:
   API_BASE_URL: "http${demo-api.expose.config.ssl?'s':''}://${demo-api.expose.config.domain}"
-network:
-  name: demo # network should support multiple networks the app should be attached to
+volumes:
+  - name: ui-static
+    hostPath: /var/lib/stevedore/demo-ui/static
+    mountPath: /srv/static
+  - name: ui-cache
+    hostPath: /var/lib/stevedore/demo-ui/cache
+    mountPath: /srv/cache
+networks:
+  - name: demo         # first declared entry is used as the primary network
+  - name: demo-shared  # additional network attachment
 

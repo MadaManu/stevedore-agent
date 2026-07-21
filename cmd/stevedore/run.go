@@ -232,14 +232,15 @@ func reconcileCycle(ctx context.Context, cfg *config.Config, r *reconciler.Recon
 }
 
 type runtimeSnapshot struct {
-	App     string            `json:"app"`
-	Exists  bool              `json:"exists"`
-	Running bool              `json:"running,omitempty"`
-	Image   string            `json:"image,omitempty"`
-	Hash    string            `json:"hash,omitempty"`
-	Ports   map[int]int       `json:"ports,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Network string            `json:"network,omitempty"`
+	App      string                 `json:"app"`
+	Exists   bool                   `json:"exists"`
+	Running  bool                   `json:"running,omitempty"`
+	Image    string                 `json:"image,omitempty"`
+	Hash     string                 `json:"hash,omitempty"`
+	Ports    map[int]int            `json:"ports,omitempty"`
+	Env      map[string]string      `json:"env,omitempty"`
+	Networks []string               `json:"networks,omitempty"`
+	Volumes  []docker.VolumeMapping `json:"volumes,omitempty"`
 }
 
 func computeRuntimeStateHash(runtime docker.Runtime, apps []manifest.Application) (string, error) {
@@ -292,11 +293,17 @@ func computeRuntimeStateHash(runtime docker.Runtime, apps []manifest.Application
 		}
 		snapshot.Env = envVars
 
-		network, err := runtime.ContainerNetwork(app.ContainerName())
+		networks, err := runtime.ContainerNetworks(app.ContainerName())
 		if err != nil {
 			return "", err
 		}
-		snapshot.Network = network
+		snapshot.Networks = networks
+
+		volumes, err := runtime.ContainerVolumes(app.ContainerName())
+		if err != nil {
+			return "", err
+		}
+		snapshot.Volumes = volumes
 
 		snapshots = append(snapshots, snapshot)
 	}
@@ -315,7 +322,34 @@ func computeDesiredStateHash(apps []manifest.Application) (string, error) {
 		return sortedApps[i].ContainerName() < sortedApps[j].ContainerName()
 	})
 
-	b, err := json.Marshal(sortedApps)
+	type desiredSnapshot struct {
+		Metadata      manifest.Metadata        `json:"metadata"`
+		Image         manifest.ImageConfig     `json:"image"`
+		Container     manifest.ContainerConfig `json:"container"`
+		RestartPolicy string                   `json:"restartPolicy"`
+		Ports         []manifest.PortMapping   `json:"ports"`
+		Volumes       []manifest.VolumeMapping `json:"volumes"`
+		Environment   map[string]string        `json:"environment"`
+		Networks      []string                 `json:"networks"`
+		Expose        manifest.ExposureConfig  `json:"expose"`
+	}
+
+	snapshots := make([]desiredSnapshot, 0, len(sortedApps))
+	for _, app := range sortedApps {
+		snapshots = append(snapshots, desiredSnapshot{
+			Metadata:      app.Metadata,
+			Image:         app.Image,
+			Container:     app.Container,
+			RestartPolicy: app.RestartPolicy,
+			Ports:         app.Ports,
+			Volumes:       app.VolumeMappings(),
+			Environment:   app.Environment,
+			Networks:      app.NetworkNames(),
+			Expose:        app.Expose,
+		})
+	}
+
+	b, err := json.Marshal(snapshots)
 	if err != nil {
 		return "", err
 	}

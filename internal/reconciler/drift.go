@@ -12,16 +12,21 @@ import (
 // DriftReport describes the differences found between the desired manifest state
 // and the actual running container state.
 type DriftReport struct {
-	HasDrift       bool
-	ImageChanged   bool
-	CurrentImage   string
-	DesiredImage   string
-	PortDrifts     []PortDrift
-	EnvDrifts      map[string]EnvDrift
-	NetworkChanged bool
-	CurrentNetwork string
-	DesiredNetwork string
-	ConfigDrift    bool // volumes/restart changed (caught by hash; not broken down further)
+	HasDrift        bool
+	ImageChanged    bool
+	CurrentImage    string
+	DesiredImage    string
+	PortDrifts      []PortDrift
+	EnvDrifts       map[string]EnvDrift
+	NetworkChanged  bool
+	CurrentNetwork  string
+	DesiredNetwork  string
+	VolumeChanged   bool
+	CurrentVolumes  []docker.VolumeMapping
+	DesiredVolumes  []docker.VolumeMapping
+	CurrentNetworks []string
+	DesiredNetworks []string
+	ConfigDrift     bool // restart policy or other hashed fields changed
 }
 
 // PortDrift describes a single port mapping that differs from desired state.
@@ -80,10 +85,13 @@ func (d DriftReport) Items() []string {
 		}
 	}
 	if d.NetworkChanged {
-		items = append(items, fmt.Sprintf("network: %s → %s", d.CurrentNetwork, d.DesiredNetwork))
+		items = append(items, fmt.Sprintf("networks: %s → %s", summarizeStrings(d.CurrentNetworks), summarizeStrings(d.DesiredNetworks)))
+	}
+	if d.VolumeChanged {
+		items = append(items, fmt.Sprintf("volumes: %s → %s", summarizeVolumes(d.CurrentVolumes), summarizeVolumes(d.DesiredVolumes)))
 	}
 	if d.ConfigDrift {
-		items = append(items, "config changed (volumes/restart)")
+		items = append(items, "config changed (restart/other hashed fields)")
 	}
 	return items
 }
@@ -192,20 +200,35 @@ func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport
 	}
 
 	// 4. Network drift
-	actualNetwork, err := runtime.ContainerNetwork(app.ContainerName())
+	actualNetworks, err := runtime.ContainerNetworks(app.ContainerName())
 	if err != nil {
 		return report, err
 	}
-	if actualNetwork != app.Network.Name {
+	desiredNetworks := app.NetworkNames()
+	if !stringSlicesEqual(actualNetworks, desiredNetworks) {
 		report.HasDrift = true
 		report.NetworkChanged = true
-		report.CurrentNetwork = actualNetwork
-		report.DesiredNetwork = app.Network.Name
+		report.CurrentNetworks = actualNetworks
+		report.DesiredNetworks = desiredNetworks
+		report.CurrentNetwork = summarizeStrings(actualNetworks)
+		report.DesiredNetwork = summarizeStrings(desiredNetworks)
 	}
 
-	// 5. Config drift — hash catches volumes and restart policy
-	//    Only check if image and ports and env and network are already matching
-	if !report.ImageChanged && len(report.PortDrifts) == 0 && len(report.EnvDrifts) == 0 && !report.NetworkChanged {
+	// 5. Volume drift
+	actualVolumes, err := runtime.ContainerVolumes(app.ContainerName())
+	if err != nil {
+		return report, err
+	}
+	desiredVolumes := desiredVolumeMappings(app)
+	if !volumeMappingsEqual(actualVolumes, desiredVolumes) {
+		report.HasDrift = true
+		report.VolumeChanged = true
+		report.CurrentVolumes = actualVolumes
+		report.DesiredVolumes = desiredVolumes
+	}
+
+	// 6. Config drift — hash catches restart policy and any remaining spec drift
+	if !report.ImageChanged && len(report.PortDrifts) == 0 && len(report.EnvDrifts) == 0 && !report.NetworkChanged && !report.VolumeChanged {
 		_, desiredHash, err := desired(app)
 		if err != nil {
 			return report, err
@@ -221,6 +244,60 @@ func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport
 	}
 
 	return report, nil
+}
+
+func summarizeStrings(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return strings.Join(items, ", ")
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func desiredVolumeMappings(app manifest.Application) []docker.VolumeMapping {
+	volumes := app.VolumeMappings()
+	result := make([]docker.VolumeMapping, 0, len(volumes))
+	for _, volume := range volumes {
+		result = append(result, docker.VolumeMapping{
+			HostPath:  volume.HostPath,
+			MountPath: volume.MountPath,
+		})
+	}
+	return result
+}
+
+func volumeMappingsEqual(a, b []docker.VolumeMapping) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].HostPath != b[i].HostPath || a[i].MountPath != b[i].MountPath {
+			return false
+		}
+	}
+	return true
+}
+
+func summarizeVolumes(volumes []docker.VolumeMapping) string {
+	if len(volumes) == 0 {
+		return ""
+	}
+	items := make([]string, 0, len(volumes))
+	for _, volume := range volumes {
+		items = append(items, fmt.Sprintf("%s:%s", volume.HostPath, volume.MountPath))
+	}
+	return strings.Join(items, ", ")
 }
 
 // isLikelyUserSetEnvVar returns true if the environment variable name suggests it was

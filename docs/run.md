@@ -68,6 +68,74 @@ Each cycle:
      application (create/update/remove containers to match the manifests).
 6. **Repeat** on the next tick. `SIGINT`/`SIGTERM` triggers graceful shutdown.
 
+## Manifest networks
+
+Stevedore supports attaching each app container to multiple Docker networks.
+
+- Preferred format: `networks` (list of `{ name: ... }` entries).
+- Legacy-compatible format: `network` (single `{ name: ... }` block).
+- If both are present, `network.name` is treated as the first entry.
+- Network names must be unique after trimming whitespace.
+
+During reconcile, Stevedore ensures each desired network exists and then attaches
+the container to all declared networks.
+
+Example:
+
+```yaml
+image:
+  repository: nginx
+ports:
+  - name: http
+    containerPort: 80
+    hostPort: 8081
+networks:
+  - name: demo         # primary network (first entry)
+  - name: demo-shared  # additional network
+```
+
+## Manifest volumes
+
+Stevedore supports attaching each app container to multiple bind mounts.
+
+- Preferred format: `volumes` (list of entries).
+- Legacy-compatible format: `volume` (single entry).
+- If both are present, `volume` is treated as the first entry.
+- Every entry must include both `hostPath` and `mountPath`.
+- `mountPath` values must be unique per app.
+
+During reconcile:
+
+1. Stevedore ensures each `hostPath` directory exists (creates it when missing).
+2. It creates containers with all declared bind mounts.
+3. It compares runtime bind mounts against desired state; mount drift triggers
+   container recreation.
+
+Volume declarations are also part of desired-state and runtime hashing, so
+changes to either desired mounts or live mounts are detected on the next cycle.
+
+Example:
+
+```yaml
+image:
+  repository: nginx
+volumes:
+  - name: data
+    hostPath: /var/lib/stevedore/demo-api/data
+    mountPath: /srv/data
+  - name: cache
+    hostPath: /var/lib/stevedore/demo-api/cache
+    mountPath: /srv/cache
+```
+
+Legacy-compatible single-entry form:
+
+```yaml
+volume:
+  hostPath: /var/lib/stevedore/demo-api/data
+  mountPath: /srv/data
+```
+
 ## Configuration
 
 Configuration is loaded **once at startup** with the precedence:

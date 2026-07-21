@@ -236,3 +236,118 @@ environment:
 		t.Fatal("expected missing secret provider to fail")
 	}
 }
+
+func TestLoadApplicationsFailsOnDuplicateNetworks(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `image:
+  repository: nginx
+networks:
+  - name: apps
+  - name: apps
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected duplicate networks to fail")
+	}
+}
+
+func TestLoadApplicationsFailsWhenPrimaryNetworkDuplicatesNetworksList(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `image:
+  repository: nginx
+network:
+  name: apps
+networks:
+  - name: apps
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected duplicate primary network to fail")
+	}
+}
+
+func TestLoadApplicationsFailsWhenLegacyVolumeMissingRequiredFields(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `image:
+  repository: nginx
+volume:
+  hostPath: /tmp/demo
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected incomplete legacy volume declaration to fail")
+	}
+}
+
+func TestLoadApplicationsFailsOnDuplicateVolumeMountPaths(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `image:
+  repository: nginx
+volumes:
+  - hostPath: /data/one
+    mountPath: /srv/data
+  - hostPath: /data/two
+    mountPath: /srv/data
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected duplicate mount paths to fail")
+	}
+}
+
+func TestLoadApplicationsFailsWhenLegacyVolumeDuplicatesVolumesListMountPath(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `image:
+  repository: nginx
+volume:
+  hostPath: /data/primary
+  mountPath: /srv/data
+volumes:
+  - hostPath: /data/secondary
+    mountPath: /srv/data
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected duplicate mount path across volume and volumes to fail")
+	}
+}

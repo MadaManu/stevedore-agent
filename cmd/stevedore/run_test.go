@@ -12,13 +12,14 @@ import (
 )
 
 type hashRuntimeFake struct {
-	existsByName  map[string]bool
-	runningByName map[string]bool
-	imageByName   map[string]string
-	labelByName   map[string]string
-	portsByName   map[string]map[int]int
-	envByName     map[string]map[string]string
-	networkByName map[string]string
+	existsByName   map[string]bool
+	runningByName  map[string]bool
+	imageByName    map[string]string
+	labelByName    map[string]string
+	portsByName    map[string]map[int]int
+	envByName      map[string]map[string]string
+	networksByName map[string][]string
+	volumesByName  map[string][]docker.VolumeMapping
 }
 
 func (f *hashRuntimeFake) PullImage(image string) error { return nil }
@@ -45,7 +46,23 @@ func (f *hashRuntimeFake) ContainerEnvironment(name string) (map[string]string, 
 	return map[string]string{}, nil
 }
 func (f *hashRuntimeFake) ContainerNetwork(name string) (string, error) {
-	return f.networkByName[name], nil
+	networks := f.networksByName[name]
+	if len(networks) == 0 {
+		return "", nil
+	}
+	return networks[0], nil
+}
+func (f *hashRuntimeFake) ContainerNetworks(name string) ([]string, error) {
+	if networks, ok := f.networksByName[name]; ok {
+		return networks, nil
+	}
+	return nil, nil
+}
+func (f *hashRuntimeFake) ContainerVolumes(name string) ([]docker.VolumeMapping, error) {
+	if volumes, ok := f.volumesByName[name]; ok {
+		return volumes, nil
+	}
+	return nil, nil
 }
 func (f *hashRuntimeFake) CreateContainer(spec docker.ContainerSpec) error { _ = spec; return nil }
 func (f *hashRuntimeFake) StartContainer(name string) error                { _ = name; return nil }
@@ -67,13 +84,14 @@ func (f *hashRuntimeFake) ImageDigest(image string) (string, error) {
 
 func TestComputeRuntimeStateHash_DeterministicAcrossAppOrder(t *testing.T) {
 	runtime := &hashRuntimeFake{
-		existsByName:  map[string]bool{"api": true, "ui": true},
-		runningByName: map[string]bool{"api": true, "ui": true},
-		imageByName:   map[string]string{"api": "nginx:1.27", "ui": "nginx:1.27"},
-		labelByName:   map[string]string{"api": "h1", "ui": "h2"},
-		portsByName:   map[string]map[int]int{"api": {80: 8080}, "ui": {80: 8081}},
-		envByName:     map[string]map[string]string{"api": {"A": "1"}, "ui": {"B": "2"}},
-		networkByName: map[string]string{"api": "apps", "ui": "apps"},
+		existsByName:   map[string]bool{"api": true, "ui": true},
+		runningByName:  map[string]bool{"api": true, "ui": true},
+		imageByName:    map[string]string{"api": "nginx:1.27", "ui": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1", "ui": "h2"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}, "ui": {80: 8081}},
+		envByName:      map[string]map[string]string{"api": {"A": "1"}, "ui": {"B": "2"}},
+		networksByName: map[string][]string{"api": {"apps"}, "ui": {"apps"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}, "ui": {{HostPath: "/data/ui", MountPath: "/srv/data"}}},
 	}
 
 	appsA := []manifest.Application{
@@ -101,13 +119,14 @@ func TestComputeRuntimeStateHash_DeterministicAcrossAppOrder(t *testing.T) {
 
 func TestComputeRuntimeStateHash_ChangesWhenContainerStops(t *testing.T) {
 	runtime := &hashRuntimeFake{
-		existsByName:  map[string]bool{"api": true},
-		runningByName: map[string]bool{"api": true},
-		imageByName:   map[string]string{"api": "nginx:1.27"},
-		labelByName:   map[string]string{"api": "h1"},
-		portsByName:   map[string]map[int]int{"api": {80: 8080}},
-		envByName:     map[string]map[string]string{"api": {"A": "1"}},
-		networkByName: map[string]string{"api": "apps"},
+		existsByName:   map[string]bool{"api": true},
+		runningByName:  map[string]bool{"api": true},
+		imageByName:    map[string]string{"api": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}},
+		envByName:      map[string]map[string]string{"api": {"A": "1"}},
+		networksByName: map[string][]string{"api": {"apps"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
 	}
 	apps := []manifest.Application{{Metadata: manifest.Metadata{Name: "api"}}}
 
@@ -130,13 +149,14 @@ func TestComputeRuntimeStateHash_ChangesWhenContainerStops(t *testing.T) {
 
 func TestComputeRuntimeStateHash_ChangesWhenEnvironmentChanges(t *testing.T) {
 	runtime := &hashRuntimeFake{
-		existsByName:  map[string]bool{"api": true},
-		runningByName: map[string]bool{"api": true},
-		imageByName:   map[string]string{"api": "nginx:1.27"},
-		labelByName:   map[string]string{"api": "h1"},
-		portsByName:   map[string]map[int]int{"api": {80: 8080}},
-		envByName:     map[string]map[string]string{"api": {"A": "1"}},
-		networkByName: map[string]string{"api": "apps"},
+		existsByName:   map[string]bool{"api": true},
+		runningByName:  map[string]bool{"api": true},
+		imageByName:    map[string]string{"api": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}},
+		envByName:      map[string]map[string]string{"api": {"A": "1"}},
+		networksByName: map[string][]string{"api": {"apps"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
 	}
 	apps := []manifest.Application{{Metadata: manifest.Metadata{Name: "api"}}}
 
@@ -201,6 +221,112 @@ func TestComputeDesiredStateHash_ChangesWhenDesiredConfigChanges(t *testing.T) {
 	}
 }
 
+func TestComputeDesiredStateHash_ChangesWhenDesiredNetworksChange(t *testing.T) {
+	apps := []manifest.Application{{
+		Metadata: manifest.Metadata{Name: "api"},
+		Networks: []manifest.NetworkConfig{{Name: "frontend"}},
+	}}
+
+	before, err := computeDesiredStateHash(apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	apps[0].Networks = []manifest.NetworkConfig{{Name: "frontend"}, {Name: "backend"}}
+
+	after, err := computeDesiredStateHash(apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before == after {
+		t.Fatal("expected desired hash to change when desired networks change")
+	}
+}
+
+func TestComputeRuntimeStateHash_ChangesWhenRuntimeNetworksChange(t *testing.T) {
+	runtime := &hashRuntimeFake{
+		existsByName:   map[string]bool{"api": true},
+		runningByName:  map[string]bool{"api": true},
+		imageByName:    map[string]string{"api": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}},
+		envByName:      map[string]map[string]string{"api": {"A": "1"}},
+		networksByName: map[string][]string{"api": {"apps"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
+	}
+	apps := []manifest.Application{{Metadata: manifest.Metadata{Name: "api"}}}
+
+	before, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime.networksByName["api"] = []string{"apps", "shared"}
+
+	after, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before == after {
+		t.Fatal("expected runtime hash to change when runtime networks change")
+	}
+}
+
+func TestComputeDesiredStateHash_ChangesWhenDesiredVolumesChange(t *testing.T) {
+	apps := []manifest.Application{{
+		Metadata: manifest.Metadata{Name: "api"},
+		Volumes:  []manifest.VolumeMapping{{HostPath: "/data/one", MountPath: "/srv/data"}},
+	}}
+
+	before, err := computeDesiredStateHash(apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	apps[0].Volumes = []manifest.VolumeMapping{{HostPath: "/data/two", MountPath: "/srv/data"}}
+
+	after, err := computeDesiredStateHash(apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before == after {
+		t.Fatal("expected desired hash to change when desired volumes change")
+	}
+}
+
+func TestComputeRuntimeStateHash_ChangesWhenRuntimeVolumesChange(t *testing.T) {
+	runtime := &hashRuntimeFake{
+		existsByName:   map[string]bool{"api": true},
+		runningByName:  map[string]bool{"api": true},
+		imageByName:    map[string]string{"api": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}},
+		envByName:      map[string]map[string]string{"api": {"A": "1"}},
+		networksByName: map[string][]string{"api": {"apps"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/one", MountPath: "/srv/data"}}},
+	}
+	apps := []manifest.Application{{Metadata: manifest.Metadata{Name: "api"}}}
+
+	before, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime.volumesByName["api"] = []docker.VolumeMapping{{HostPath: "/data/two", MountPath: "/srv/data"}}
+
+	after, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before == after {
+		t.Fatal("expected runtime hash to change when runtime volumes change")
+	}
+}
+
 func containsStringRun(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
@@ -233,13 +359,14 @@ func TestReconcileApps_ContinuesAfterError(t *testing.T) {
 	rt := &pullErrorRuntime{
 		failImage: "nginx:fail",
 		hashRuntimeFake: hashRuntimeFake{
-			existsByName:  map[string]bool{},
-			runningByName: map[string]bool{},
-			imageByName:   map[string]string{},
-			labelByName:   map[string]string{},
-			portsByName:   map[string]map[int]int{},
-			envByName:     map[string]map[string]string{},
-			networkByName: map[string]string{},
+			existsByName:   map[string]bool{},
+			runningByName:  map[string]bool{},
+			imageByName:    map[string]string{},
+			labelByName:    map[string]string{},
+			portsByName:    map[string]map[int]int{},
+			envByName:      map[string]map[string]string{},
+			networksByName: map[string][]string{},
+			volumesByName:  map[string][]docker.VolumeMapping{},
 		},
 	}
 
@@ -268,13 +395,14 @@ func TestReconcileApps_NoErrors(t *testing.T) {
 	rt := &pullErrorRuntime{
 		failImage: "", // never fail
 		hashRuntimeFake: hashRuntimeFake{
-			existsByName:  map[string]bool{},
-			runningByName: map[string]bool{},
-			imageByName:   map[string]string{},
-			labelByName:   map[string]string{},
-			portsByName:   map[string]map[int]int{},
-			envByName:     map[string]map[string]string{},
-			networkByName: map[string]string{},
+			existsByName:   map[string]bool{},
+			runningByName:  map[string]bool{},
+			imageByName:    map[string]string{},
+			labelByName:    map[string]string{},
+			portsByName:    map[string]map[int]int{},
+			envByName:      map[string]map[string]string{},
+			networksByName: map[string][]string{},
+			volumesByName:  map[string][]docker.VolumeMapping{},
 		},
 	}
 

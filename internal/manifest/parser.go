@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -85,9 +86,50 @@ func validate(app Application, path, folderName string) error {
 		}
 	}
 	for i, v := range app.Volumes {
-		if v.HostPath == "" || v.MountPath == "" {
+		hostPath := strings.TrimSpace(v.HostPath)
+		mountPath := strings.TrimSpace(v.MountPath)
+		if hostPath == "" || mountPath == "" {
 			return fmt.Errorf("%s: spec.volumes[%d] hostPath and mountPath are required", path, i)
 		}
+	}
+	volumeConfigured := strings.TrimSpace(app.Volume.Name) != "" || strings.TrimSpace(app.Volume.HostPath) != "" || strings.TrimSpace(app.Volume.MountPath) != ""
+	if volumeConfigured {
+		hostPath := strings.TrimSpace(app.Volume.HostPath)
+		mountPath := strings.TrimSpace(app.Volume.MountPath)
+		if hostPath == "" || mountPath == "" {
+			return fmt.Errorf("%s: spec.volume.hostPath and spec.volume.mountPath are required when volume is set", path)
+		}
+	}
+	seenMountPaths := map[string]string{}
+	if volumeConfigured {
+		primaryMountPath := strings.TrimSpace(app.Volume.MountPath)
+		seenMountPaths[primaryMountPath] = "spec.volume"
+	}
+	for i, v := range app.Volumes {
+		mountPath := strings.TrimSpace(v.MountPath)
+		if prev, ok := seenMountPaths[mountPath]; ok {
+			return fmt.Errorf("%s: duplicate mountPath %q at spec.volumes[%d] (already declared at %s)", path, mountPath, i, prev)
+		}
+		seenMountPaths[mountPath] = fmt.Sprintf("spec.volumes[%d]", i)
+	}
+	for i, net := range app.Networks {
+		if strings.TrimSpace(net.Name) == "" {
+			return fmt.Errorf("%s: spec.networks[%d].name is required", path, i)
+		}
+	}
+	if app.Network.Name != "" && strings.TrimSpace(app.Network.Name) == "" {
+		return fmt.Errorf("%s: spec.network.name is required when network is set", path)
+	}
+	seenNetworks := map[string]struct{}{}
+	if primary := strings.TrimSpace(app.Network.Name); primary != "" {
+		seenNetworks[primary] = struct{}{}
+	}
+	for i, net := range app.Networks {
+		name := strings.TrimSpace(net.Name)
+		if _, ok := seenNetworks[name]; ok {
+			return fmt.Errorf("%s: duplicate network name %q at spec.networks[%d]", path, name, i)
+		}
+		seenNetworks[name] = struct{}{}
 	}
 	if app.Expose.Enabled && app.Expose.Provider == "" {
 		return errors.New("spec.expose.provider is required when expose.enabled=true")

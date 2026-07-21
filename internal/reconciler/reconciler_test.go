@@ -9,18 +9,20 @@ import (
 )
 
 type fakeRuntime struct {
-	exists           bool
-	running          bool
-	image            string
-	hash             string
-	ports            map[int]int // containerPort → hostPort
-	network          bool
-	created          bool
-	started          bool
-	pulledImage      string
-	env              map[string]string
-	containerNetwork string
-	imageDigests     map[string]string // image name -> digest
+	exists            bool
+	running           bool
+	image             string
+	hash              string
+	ports             map[int]int // containerPort → hostPort
+	network           bool
+	created           bool
+	started           bool
+	pulledImage       string
+	env               map[string]string
+	containerNetwork  string
+	containerNetworks []string
+	containerVolumes  []docker.VolumeMapping
+	imageDigests      map[string]string // image name -> digest
 }
 
 func (f *fakeRuntime) PullImage(image string) error                    { f.pulledImage = image; return nil }
@@ -38,6 +40,18 @@ func (f *fakeRuntime) ContainerEnvironment(name string) (map[string]string, erro
 }
 func (f *fakeRuntime) ContainerNetwork(name string) (string, error) {
 	return f.containerNetwork, nil
+}
+func (f *fakeRuntime) ContainerNetworks(name string) ([]string, error) {
+	if len(f.containerNetworks) > 0 {
+		return f.containerNetworks, nil
+	}
+	if f.containerNetwork != "" {
+		return []string{f.containerNetwork}, nil
+	}
+	return nil, nil
+}
+func (f *fakeRuntime) ContainerVolumes(name string) ([]docker.VolumeMapping, error) {
+	return f.containerVolumes, nil
 }
 func (f *fakeRuntime) ImageDigest(image string) (string, error) {
 	if f.imageDigests == nil {
@@ -103,11 +117,12 @@ func TestReconcileStartsExistingStoppedContainer(t *testing.T) {
 	}
 
 	fr := &fakeRuntime{
-		exists:  true,
-		running: false,
-		image:   app.FullImage(),
-		hash:    h,
-		network: true,
+		exists:            true,
+		running:           false,
+		image:             app.FullImage(),
+		hash:              h,
+		network:           true,
+		containerNetworks: app.NetworkNames(),
 	}
 	r := &Reconciler{Runtime: fr, Plugins: plugins.NewManager()}
 
@@ -136,10 +151,11 @@ func TestComputeDrift_NoDrift(t *testing.T) {
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image: app.FullImage(),
-		hash:  h,
-		ports: map[int]int{80: 8080},
-		env:   make(map[string]string), // no user env vars
+		image:             app.FullImage(),
+		hash:              h,
+		ports:             map[int]int{80: 8080},
+		env:               make(map[string]string), // no user env vars
+		containerNetworks: app.NetworkNames(),
 		imageDigests: map[string]string{
 			"nginx:latest": "sha256:abc123",
 		},
@@ -166,10 +182,11 @@ func TestComputeDrift_PortDrift(t *testing.T) {
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image: app.FullImage(),
-		hash:  h,
-		ports: map[int]int{80: 8080}, // actually running on 8080
-		env:   make(map[string]string),
+		image:             app.FullImage(),
+		hash:              h,
+		ports:             map[int]int{80: 8080}, // actually running on 8080
+		env:               make(map[string]string),
+		containerNetworks: app.NetworkNames(),
 		imageDigests: map[string]string{
 			"nginx:latest": "sha256:abc123",
 		},
@@ -242,6 +259,7 @@ func TestComputeDrift_EnvironmentDrift(t *testing.T) {
 			"CUSTOM_VAR":                  "actual_value", // different value
 			"EXTRA_VAR":                   "extra",        // extra variable
 		},
+		containerNetworks: app.NetworkNames(),
 		imageDigests: map[string]string{
 			"nginx:latest": "sha256:abc123",
 		},
@@ -266,17 +284,20 @@ func TestComputeDrift_NetworkDrift(t *testing.T) {
 		Metadata:      manifest.Metadata{Name: "demo"},
 		Image:         manifest.ImageConfig{Repository: "nginx", Tag: "latest"},
 		RestartPolicy: "always",
-		Network:       manifest.NetworkConfig{Name: "desired-network"},
+		Networks: []manifest.NetworkConfig{
+			{Name: "desired-network"},
+			{Name: "shared-network"},
+		},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image:            app.FullImage(),
-		hash:             h,
-		ports:            map[int]int{},
-		env:              make(map[string]string),
-		containerNetwork: "actual-network",
+		image:             app.FullImage(),
+		hash:              h,
+		ports:             map[int]int{},
+		env:               make(map[string]string),
+		containerNetworks: []string{"actual-network", "shared-network"},
 		imageDigests: map[string]string{
 			"nginx:latest": "sha256:abc123",
 		},
@@ -291,11 +312,50 @@ func TestComputeDrift_NetworkDrift(t *testing.T) {
 	if !report.NetworkChanged {
 		t.Fatal("expected network drift")
 	}
-	if report.CurrentNetwork != "actual-network" || report.DesiredNetwork != "desired-network" {
+	if report.CurrentNetwork != "actual-network, shared-network" || report.DesiredNetwork != "desired-network, shared-network" {
 		t.Fatalf("unexpected network drift: current=%s desired=%s", report.CurrentNetwork, report.DesiredNetwork)
 	}
-	if !containsString(report.Summary(), "network:") {
+	if !containsString(report.Summary(), "networks:") {
 		t.Fatalf("expected network drift in summary: %s", report.Summary())
+	}
+}
+
+func TestComputeDrift_VolumeDrift(t *testing.T) {
+	app := manifest.Application{
+		Metadata:      manifest.Metadata{Name: "demo"},
+		Image:         manifest.ImageConfig{Repository: "nginx", Tag: "latest"},
+		RestartPolicy: "always",
+		Volumes: []manifest.VolumeMapping{
+			{HostPath: "/data/desired", MountPath: "/srv/data"},
+		},
+	}
+	spec, _ := docker.BuildContainerSpec(app, "")
+	h, _ := docker.HashFromSpec(spec)
+
+	fr := &fakeRuntime{
+		image: app.FullImage(),
+		hash:  h,
+		ports: map[int]int{},
+		env:   make(map[string]string),
+		containerVolumes: []docker.VolumeMapping{
+			{HostPath: "/data/actual", MountPath: "/srv/data"},
+		},
+		imageDigests: map[string]string{
+			"nginx:latest": "sha256:abc123",
+		},
+	}
+	report, err := ComputeDrift(fr, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.HasDrift {
+		t.Fatal("expected drift but got none")
+	}
+	if !report.VolumeChanged {
+		t.Fatal("expected volume drift")
+	}
+	if !containsString(report.Summary(), "volumes:") {
+		t.Fatalf("expected volume drift in summary: %s", report.Summary())
 	}
 }
 
@@ -308,12 +368,12 @@ func TestDriftReportSummaryAndItems_Order(t *testing.T) {
 				Removed: true,
 			},
 		},
-		NetworkChanged: true,
-		CurrentNetwork: "apps",
-		DesiredNetwork: "apps2",
+		NetworkChanged:  true,
+		CurrentNetworks: []string{"apps"},
+		DesiredNetworks: []string{"apps2"},
 	}
 
-	wantSummary := "env: MADA_TEST (missing); network: apps → apps2"
+	wantSummary := "env: MADA_TEST (missing); networks: apps → apps2"
 	if got := report.Summary(); got != wantSummary {
 		t.Fatalf("unexpected summary:\nwant: %q\n got: %q", wantSummary, got)
 	}
@@ -325,7 +385,7 @@ func TestDriftReportSummaryAndItems_Order(t *testing.T) {
 	if items[0] != "env: MADA_TEST (missing)" {
 		t.Fatalf("unexpected first drift item: %q", items[0])
 	}
-	if items[1] != "network: apps → apps2" {
+	if items[1] != "networks: apps → apps2" {
 		t.Fatalf("unexpected second drift item: %q", items[1])
 	}
 }

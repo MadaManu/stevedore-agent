@@ -11,8 +11,16 @@ ports:
 environment:
   NGINX_ENTRYPOINT_QUIET_LOGS: "1"
   TOKEN_VALUE_SECRET: ${local:api/token}
-network:
-  name: demo
+volumes:
+  - name: data
+    hostPath: /var/lib/stevedore/demo-api/data
+    mountPath: /srv/data
+  - name: cache
+    hostPath: /var/lib/stevedore/demo-api/cache
+    mountPath: /srv/cache
+networks:
+  - name: demo         # first declared entry is used as the primary network
+  - name: demo-shared  # additional network attachment
 expose:
   enabled: true
   provider: apache

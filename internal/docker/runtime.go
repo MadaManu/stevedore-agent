@@ -17,6 +17,8 @@ type Runtime interface {
 	ContainerLabel(name, key string) (string, error)
 	ContainerPorts(name string) (map[int]int, error)
 	ContainerEnvironment(name string) (map[string]string, error)
+	ContainerVolumes(name string) ([]VolumeMapping, error)
+	ContainerNetworks(name string) ([]string, error)
 	ContainerNetwork(name string) (string, error)
 	CreateContainer(spec ContainerSpec) error
 	StartContainer(name string) error
@@ -37,6 +39,7 @@ type ContainerSpec struct {
 	Volumes       []VolumeMapping
 	Environment   map[string]string
 	NetworkName   string
+	NetworkNames  []string
 	Labels        map[string]string
 }
 
@@ -142,8 +145,16 @@ func (d *DockerRuntime) CreateContainer(spec ContainerSpec) error {
 	for _, v := range spec.Volumes {
 		args = append(args, "-v", fmt.Sprintf("%s:%s", v.HostPath, v.MountPath))
 	}
-	if spec.NetworkName != "" {
-		args = append(args, "--network", spec.NetworkName)
+	desiredNetworks := normalizeNetworkNames(spec.NetworkNames)
+	primaryNetwork := strings.TrimSpace(spec.NetworkName)
+	if primaryNetwork == "" && len(desiredNetworks) > 0 {
+		primaryNetwork = desiredNetworks[0]
+	}
+	if primaryNetwork != "" && !containsString(desiredNetworks, primaryNetwork) {
+		desiredNetworks = append([]string{primaryNetwork}, desiredNetworks...)
+	}
+	if primaryNetwork != "" {
+		args = append(args, "--network", primaryNetwork)
 	}
 
 	if len(spec.Environment) > 0 {
@@ -169,8 +180,20 @@ func (d *DockerRuntime) CreateContainer(spec ContainerSpec) error {
 	}
 
 	args = append(args, spec.Image)
-	_, err := runDocker(args...)
-	return err
+	if _, err := runDocker(args...); err != nil {
+		return err
+	}
+
+	for _, network := range desiredNetworks {
+		if network == "" || network == primaryNetwork {
+			continue
+		}
+		if _, err := runDocker("network", "connect", network, spec.Name); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (d *DockerRuntime) StartContainer(name string) error {
@@ -241,32 +264,107 @@ func (d *DockerRuntime) ContainerEnvironment(name string) (map[string]string, er
 	return env, nil
 }
 
-// ContainerNetwork returns the network name the container is connected to.
-func (d *DockerRuntime) ContainerNetwork(name string) (string, error) {
+// ContainerVolumes returns bind mounts attached to a container, sorted by
+// mount path to keep comparisons deterministic.
+func (d *DockerRuntime) ContainerVolumes(name string) ([]VolumeMapping, error) {
+	out, err := runDocker("inspect", "-f", "{{json .Mounts}}", name)
+	if err != nil {
+		return nil, err
+	}
+	var mounts []struct {
+		Type        string `json:"Type"`
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+	}
+	if err := json.Unmarshal([]byte(out), &mounts); err != nil {
+		return nil, fmt.Errorf("parse mounts for %s: %w", name, err)
+	}
+	volumes := make([]VolumeMapping, 0, len(mounts))
+	for _, mount := range mounts {
+		if mount.Type != "bind" {
+			continue
+		}
+		hostPath := strings.TrimSpace(mount.Source)
+		mountPath := strings.TrimSpace(mount.Destination)
+		if hostPath == "" || mountPath == "" {
+			continue
+		}
+		volumes = append(volumes, VolumeMapping{HostPath: hostPath, MountPath: mountPath})
+	}
+	sort.Slice(volumes, func(i, j int) bool {
+		if volumes[i].MountPath != volumes[j].MountPath {
+			return volumes[i].MountPath < volumes[j].MountPath
+		}
+		return volumes[i].HostPath < volumes[j].HostPath
+	})
+	return volumes, nil
+}
+
+// ContainerNetworks returns the set of attached network names, sorted.
+func (d *DockerRuntime) ContainerNetworks(name string) ([]string, error) {
 	out, err := runDocker("inspect", "-f", "{{json .NetworkSettings.Networks}}", name)
+	if err != nil {
+		return nil, err
+	}
+	// Docker returns: {"networkname":{...}, "bridge":{...}}
+	var networks map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &networks); err != nil {
+		return nil, fmt.Errorf("parse networks for %s: %w", name, err)
+	}
+	result := make([]string, 0, len(networks))
+	for netName := range networks {
+		if netName != "bridge" {
+			result = append(result, netName)
+		}
+	}
+	if len(result) == 0 && len(networks) > 0 {
+		for netName := range networks {
+			result = append(result, netName)
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// ContainerNetwork returns the first attached network name for compatibility.
+func (d *DockerRuntime) ContainerNetwork(name string) (string, error) {
+	networks, err := d.ContainerNetworks(name)
 	if err != nil {
 		return "", err
 	}
-	// Docker returns: {"networkname":{...}, "bridge":{...}}
-	// We want to get the first key (usually the primary network)
-	var networks map[string]interface{}
-	if err := json.Unmarshal([]byte(out), &networks); err != nil {
-		return "", fmt.Errorf("parse networks for %s: %w", name, err)
-	}
-
-	// Get the first (non-bridge) network name, or fall back to bridge
-	for netName := range networks {
-		if netName != "bridge" {
-			return netName, nil
-		}
-	}
-	// If only bridge exists, return it
 	if len(networks) > 0 {
-		for netName := range networks {
-			return netName, nil
-		}
+		return networks[0], nil
 	}
 	return "", nil
+}
+
+func normalizeNetworkNames(networks []string) []string {
+	if len(networks) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(networks))
+	for _, name := range networks {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ImageDigest returns the digest (sha256:...) of the given image.
