@@ -271,11 +271,58 @@ func TestComputeDrift_EnvironmentDrift(t *testing.T) {
 	if !report.HasDrift {
 		t.Fatal("expected drift but got none")
 	}
-	if len(report.EnvDrifts) != 2 {
-		t.Fatalf("expected 2 env drifts, got %d: %v", len(report.EnvDrifts), report.EnvDrifts)
+	if len(report.EnvDrifts) != 1 {
+		t.Fatalf("expected 1 env drift, got %d: %v", len(report.EnvDrifts), report.EnvDrifts)
+	}
+	if _, exists := report.EnvDrifts["EXTRA_VAR"]; exists {
+		t.Fatal("did not expect extra runtime environment variable to be treated as drift")
+	}
+	if _, exists := report.IgnoredExtraEnv["EXTRA_VAR"]; !exists {
+		t.Fatal("expected extra runtime environment variable to be recorded as ignored")
 	}
 	if !containsString(report.Summary(), "env:") {
 		t.Fatalf("expected env drift in summary: %s", report.Summary())
+	}
+}
+
+func TestComputeDrift_ExtraEnvironmentOnly_IsIgnored(t *testing.T) {
+	app := manifest.Application{
+		Metadata:      manifest.Metadata{Name: "demo"},
+		Image:         manifest.ImageConfig{Repository: "nginx", Tag: "latest"},
+		RestartPolicy: "always",
+		Environment: map[string]string{
+			"CUSTOM_VAR": "expected_value",
+		},
+	}
+	spec, _ := docker.BuildContainerSpec(app, "")
+	h, _ := docker.HashFromSpec(spec)
+
+	fr := &fakeRuntime{
+		image: app.FullImage(),
+		hash:  h,
+		ports: map[int]int{},
+		env: map[string]string{
+			"CUSTOM_VAR": "expected_value",
+			"EXTRA_VAR":  "extra",
+		},
+		containerNetworks: app.NetworkNames(),
+		imageDigests: map[string]string{
+			"nginx:latest": "sha256:abc123",
+		},
+	}
+
+	report, err := ComputeDrift(fr, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.HasDrift {
+		t.Fatalf("expected no drift when only extra runtime env vars exist, got: %s", report.Summary())
+	}
+	if len(report.EnvDrifts) != 0 {
+		t.Fatalf("expected no env drift entries, got %d", len(report.EnvDrifts))
+	}
+	if _, exists := report.IgnoredExtraEnv["EXTRA_VAR"]; !exists {
+		t.Fatal("expected extra runtime env var to be captured as ignored")
 	}
 }
 
@@ -312,11 +359,79 @@ func TestComputeDrift_NetworkDrift(t *testing.T) {
 	if !report.NetworkChanged {
 		t.Fatal("expected network drift")
 	}
-	if report.CurrentNetwork != "actual-network, shared-network" || report.DesiredNetwork != "desired-network, shared-network" {
-		t.Fatalf("unexpected network drift: current=%s desired=%s", report.CurrentNetwork, report.DesiredNetwork)
-	}
 	if !containsString(report.Summary(), "networks:") {
 		t.Fatalf("expected network drift in summary: %s", report.Summary())
+	}
+}
+
+func TestComputeDrift_ExtraRuntimeNetwork_IsIgnored(t *testing.T) {
+	app := manifest.Application{
+		Metadata:      manifest.Metadata{Name: "demo"},
+		Image:         manifest.ImageConfig{Repository: "nginx", Tag: "latest"},
+		RestartPolicy: "always",
+		Networks:      []manifest.NetworkConfig{{Name: "apps"}},
+	}
+	spec, _ := docker.BuildContainerSpec(app, "")
+	h, _ := docker.HashFromSpec(spec)
+
+	fr := &fakeRuntime{
+		image: app.FullImage(),
+		hash:  h,
+		ports: map[int]int{},
+		env:   make(map[string]string),
+		// bridge is an extra runtime network not in the manifest
+		containerNetworks: []string{"apps", "bridge"},
+		imageDigests: map[string]string{
+			"nginx:latest": "sha256:abc123",
+		},
+	}
+
+	report, err := ComputeDrift(fr, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.HasDrift {
+		t.Fatalf("expected no drift when only extra runtime networks present, got: %s", report.Summary())
+	}
+	found := false
+	for _, n := range report.IgnoredExtraNetworks {
+		if n == "bridge" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'bridge' in IgnoredExtraNetworks, got: %v", report.IgnoredExtraNetworks)
+	}
+}
+
+func TestComputeDrift_NoDesiredNetworks_BridgeIgnored(t *testing.T) {
+	app := manifest.Application{
+		Metadata:      manifest.Metadata{Name: "demo"},
+		Image:         manifest.ImageConfig{Repository: "nginx", Tag: "latest"},
+		RestartPolicy: "always",
+		// no networks declared
+	}
+	spec, _ := docker.BuildContainerSpec(app, "")
+	h, _ := docker.HashFromSpec(spec)
+
+	fr := &fakeRuntime{
+		image: app.FullImage(),
+		hash:  h,
+		ports: map[int]int{},
+		env:   make(map[string]string),
+		// container only on bridge (Docker default)
+		containerNetworks: []string{"bridge"},
+		imageDigests: map[string]string{
+			"nginx:latest": "sha256:abc123",
+		},
+	}
+
+	report, err := ComputeDrift(fr, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.HasDrift {
+		t.Fatalf("expected no drift when desired has no networks and runtime only has bridge, got: %s", report.Summary())
 	}
 }
 

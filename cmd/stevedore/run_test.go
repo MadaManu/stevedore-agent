@@ -158,7 +158,10 @@ func TestComputeRuntimeStateHash_ChangesWhenEnvironmentChanges(t *testing.T) {
 		networksByName: map[string][]string{"api": {"apps"}},
 		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
 	}
-	apps := []manifest.Application{{Metadata: manifest.Metadata{Name: "api"}}}
+	apps := []manifest.Application{{
+		Metadata:    manifest.Metadata{Name: "api"},
+		Environment: map[string]string{"A": "desired"},
+	}}
 
 	before, err := computeRuntimeStateHash(runtime, apps)
 	if err != nil {
@@ -174,6 +177,39 @@ func TestComputeRuntimeStateHash_ChangesWhenEnvironmentChanges(t *testing.T) {
 
 	if before == after {
 		t.Fatal("expected runtime hash to change when environment changes")
+	}
+}
+
+func TestComputeRuntimeStateHash_IgnoresExtraRuntimeEnvironmentVars(t *testing.T) {
+	runtime := &hashRuntimeFake{
+		existsByName:   map[string]bool{"api": true},
+		runningByName:  map[string]bool{"api": true},
+		imageByName:    map[string]string{"api": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}},
+		envByName:      map[string]map[string]string{"api": {"A": "1", "EXTRA": "first"}},
+		networksByName: map[string][]string{"api": {"apps"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
+	}
+	apps := []manifest.Application{{
+		Metadata:    manifest.Metadata{Name: "api"},
+		Environment: map[string]string{"A": "desired"},
+	}}
+
+	before, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime.envByName["api"]["EXTRA"] = "second"
+
+	after, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before != after {
+		t.Fatal("expected runtime hash to stay the same when only extra runtime env vars change")
 	}
 }
 
@@ -255,14 +291,18 @@ func TestComputeRuntimeStateHash_ChangesWhenRuntimeNetworksChange(t *testing.T) 
 		networksByName: map[string][]string{"api": {"apps"}},
 		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
 	}
-	apps := []manifest.Application{{Metadata: manifest.Metadata{Name: "api"}}}
+	apps := []manifest.Application{{
+		Metadata: manifest.Metadata{Name: "api"},
+		Networks: []manifest.NetworkConfig{{Name: "apps"}},
+	}}
 
 	before, err := computeRuntimeStateHash(runtime, apps)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	runtime.networksByName["api"] = []string{"apps", "shared"}
+	// Remove "apps" entirely from runtime — that's a real change
+	runtime.networksByName["api"] = []string{"other"}
 
 	after, err := computeRuntimeStateHash(runtime, apps)
 	if err != nil {
@@ -270,7 +310,41 @@ func TestComputeRuntimeStateHash_ChangesWhenRuntimeNetworksChange(t *testing.T) 
 	}
 
 	if before == after {
-		t.Fatal("expected runtime hash to change when runtime networks change")
+		t.Fatal("expected runtime hash to change when a desired network disappears from runtime")
+	}
+}
+
+func TestComputeRuntimeStateHash_IgnoresExtraRuntimeNetworks(t *testing.T) {
+	runtime := &hashRuntimeFake{
+		existsByName:   map[string]bool{"api": true},
+		runningByName:  map[string]bool{"api": true},
+		imageByName:    map[string]string{"api": "nginx:1.27"},
+		labelByName:    map[string]string{"api": "h1"},
+		portsByName:    map[string]map[int]int{"api": {80: 8080}},
+		envByName:      map[string]map[string]string{"api": {"A": "1"}},
+		networksByName: map[string][]string{"api": {"apps", "bridge"}},
+		volumesByName:  map[string][]docker.VolumeMapping{"api": {{HostPath: "/data/api", MountPath: "/srv/data"}}},
+	}
+	apps := []manifest.Application{{
+		Metadata: manifest.Metadata{Name: "api"},
+		Networks: []manifest.NetworkConfig{{Name: "apps"}},
+	}}
+
+	before, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add another extra network — should not affect hash
+	runtime.networksByName["api"] = []string{"apps", "bridge", "extra"}
+
+	after, err := computeRuntimeStateHash(runtime, apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before != after {
+		t.Fatal("expected runtime hash to stay the same when only extra runtime networks are added")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"stevedore-agent/internal/docker"
 	"stevedore-agent/internal/logging"
@@ -64,6 +65,29 @@ func (r *Reconciler) Reconcile(app manifest.Application) (*ReconcileResult, erro
 			// Compute and log the specific drift before acting on it
 			if drift, driftErr := ComputeDrift(r.Runtime, app); driftErr == nil {
 				result.Drift = drift
+				if len(drift.IgnoredExtraEnv) > 0 {
+					extraEnvKeys := make([]string, 0, len(drift.IgnoredExtraEnv))
+					for key := range drift.IgnoredExtraEnv {
+						extraEnvKeys = append(extraEnvKeys, key)
+					}
+					sort.Strings(extraEnvKeys)
+					slog.InfoContext(
+						logging.BusinessContext(ctx, "reconcile"),
+						"ignoring runtime env vars not declared in manifest",
+						slog.String("app", app.Metadata.Name),
+						slog.String("envVars", fmt.Sprintf("%v", extraEnvKeys)),
+					)
+				}
+				if len(drift.IgnoredExtraNetworks) > 0 {
+					extra := append([]string(nil), drift.IgnoredExtraNetworks...)
+					sort.Strings(extra)
+					slog.InfoContext(
+						logging.BusinessContext(ctx, "reconcile"),
+						"ignoring runtime networks not declared in manifest",
+						slog.String("app", app.Metadata.Name),
+						slog.String("networks", fmt.Sprintf("%v", extra)),
+					)
+				}
 				slog.InfoContext(logging.BusinessContext(ctx, "reconcile"), "drift detected", slog.String("app", app.Metadata.Name), slog.String("changes", drift.Summary()))
 				fmt.Printf("Drift detected in %s: %s\n", app.Metadata.Name, drift.Summary())
 				for _, item := range drift.Items() {
@@ -172,7 +196,9 @@ func (r *Reconciler) needsUpdate(app manifest.Application, desiredHash, desiredI
 	if err != nil {
 		return false, err
 	}
-	if !stringSlicesEqual(currentNetworks, app.NetworkNames()) {
+	// Only trigger an update when a desired network is absent from the running
+	// container. Extra runtime networks (e.g. Docker's bridge) are ignored.
+	if len(missingStrings(app.NetworkNames(), currentNetworks)) > 0 {
 		return true, nil
 	}
 	currentVolumes, err := r.Runtime.ContainerVolumes(app.ContainerName())

@@ -389,6 +389,15 @@ sudo stevedore-agent install-service
 This command writes `/etc/systemd/system/stevedore-agent.service`, runs
 `systemctl daemon-reload`, then runs `systemctl enable --now stevedore-agent.service`.
 
+To uninstall the service, use:
+
+```bash
+sudo stevedore-agent uninstall-service
+```
+
+This command runs `systemctl disable --now stevedore-agent.service`, removes
+`/etc/systemd/system/stevedore-agent.service` when present, then reloads systemd.
+
 The service file is generated from a template in code at
 `cmd/stevedore/service_install.go` so it can be changed centrally.
 
@@ -413,4 +422,26 @@ RestartSec=30
 [Install]
 WantedBy=multi-user.target
 ```
+
+### Private Docker Registry Support
+
+By default, `install-service` configures Docker credential environment variables
+from the current shell's `HOME`:
+
+```ini
+Environment=DOCKER_CONFIG=$HOME/.docker
+Environment=HOME=$HOME
+```
+
+If your Docker credentials live somewhere else (for example, a dedicated service
+user), override with `--docker-config` and `--docker-home`:
+
+```bash
+# Example override for a dedicated service user
+sudo stevedore-agent install-service \
+  --docker-config /home/stevedore/.docker \
+  --docker-home /home/stevedore
+```
+
+For detailed setup instructions and troubleshooting, see [`docs/docker-private-registry.md`](./docker-private-registry.md).
 

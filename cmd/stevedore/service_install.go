@@ -20,6 +20,8 @@ const (
 	defaultSystemdDir   = "/etc/systemd/system"
 	defaultStevedoreDir = "/etc/stevedore"
 	defaultLogDir       = "/var/log/stevedore"
+	defaultDockerConfig = ""
+	defaultDockerHome   = ""
 	systemdTemplateFile = "templates/systemd.service.tmpl"
 )
 
@@ -31,6 +33,8 @@ var (
 	systemdDirPath        = defaultSystemdDir
 	stevedoreHomePath     = defaultStevedoreDir
 	stevedoreLogDir       = defaultLogDir
+	dockerConfigPath      = ""
+	dockerHomePath        = ""
 	resolveExecutablePath = os.Executable
 	writeFileFn           = os.WriteFile
 	runCommandFn          = runCommand
@@ -47,6 +51,9 @@ func newInstallServiceCommand() *cobra.Command {
 			return runInstallService(cmd.OutOrStdout())
 		},
 	}
+
+	cmd.Flags().StringVar(&dockerConfigPath, "docker-config", defaultDockerConfig, "Path to Docker config directory for pulling private images (default: $HOME/.docker)")
+	cmd.Flags().StringVar(&dockerHomePath, "docker-home", defaultDockerHome, "Home directory for Docker user for accessing Docker credentials (default: $HOME)")
 
 	return cmd
 }
@@ -75,8 +82,10 @@ func runInstallService(w io.Writer) error {
 		return fmt.Errorf("resolved executable path is empty")
 	}
 
+	effectiveDockerConfigPath, effectiveDockerHomePath := resolveDockerEnvPaths()
+
 	unitFilePath := filepath.Join(filepath.Clean(systemdDirPath), serviceName+".service")
-	serviceText, err := renderSystemdService(binaryPath)
+	serviceText, err := renderSystemdService(binaryPath, effectiveDockerConfigPath, effectiveDockerHomePath)
 	if err != nil {
 		return fmt.Errorf("render systemd service: %w", err)
 	}
@@ -99,7 +108,21 @@ func runInstallService(w io.Writer) error {
 	return nil
 }
 
-func renderSystemdService(binaryPath string) (string, error) {
+func resolveDockerEnvPaths() (string, string) {
+	home := strings.TrimSpace(dockerHomePath)
+	if home == "" {
+		home = strings.TrimSpace(os.Getenv("HOME"))
+	}
+
+	dockerConfig := strings.TrimSpace(dockerConfigPath)
+	if dockerConfig == "" && home != "" {
+		dockerConfig = filepath.Join(home, ".docker")
+	}
+
+	return dockerConfig, home
+}
+
+func renderSystemdService(binaryPath, effectiveDockerConfigPath, effectiveDockerHomePath string) (string, error) {
 	binaryPath = strings.TrimSpace(binaryPath)
 	if binaryPath == "" {
 		return "", fmt.Errorf("binary path is required")
@@ -113,13 +136,17 @@ func renderSystemdService(binaryPath string) (string, error) {
 		return "", fmt.Errorf("systemd template %s is empty", systemdTemplateFile)
 	}
 	data := struct {
-		StevedoreHome string
-		LogDir        string
-		BinaryPath    string
+		StevedoreHome    string
+		LogDir           string
+		BinaryPath       string
+		DockerConfigPath string
+		DockerHomePath   string
 	}{
-		StevedoreHome: stevedoreHomePath,
-		LogDir:        stevedoreLogDir,
-		BinaryPath:    binaryPath,
+		StevedoreHome:    stevedoreHomePath,
+		LogDir:           stevedoreLogDir,
+		BinaryPath:       binaryPath,
+		DockerConfigPath: strings.TrimSpace(effectiveDockerConfigPath),
+		DockerHomePath:   strings.TrimSpace(effectiveDockerHomePath),
 	}
 	tpl, err := template.New("systemd-service").Parse(templateText)
 	if err != nil {

@@ -44,6 +44,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newDoctorCommand())
 	root.AddCommand(newInstallServiceCommand())
+	root.AddCommand(newUninstallServiceCommand())
 
 	return root
 }

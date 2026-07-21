@@ -243,6 +243,36 @@ type runtimeSnapshot struct {
 	Volumes  []docker.VolumeMapping `json:"volumes,omitempty"`
 }
 
+func runtimeEnvForDesired(actualEnv, desiredEnv map[string]string) map[string]string {
+	if len(desiredEnv) == 0 {
+		return nil
+	}
+	filtered := make(map[string]string, len(desiredEnv))
+	for key := range desiredEnv {
+		if value, ok := actualEnv[key]; ok {
+			filtered[key] = value
+		}
+	}
+	return filtered
+}
+
+func runtimeNetworksForDesired(actualNetworks, desiredNetworks []string) []string {
+	if len(desiredNetworks) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(actualNetworks))
+	for _, n := range actualNetworks {
+		set[n] = struct{}{}
+	}
+	filtered := make([]string, 0, len(desiredNetworks))
+	for _, n := range desiredNetworks {
+		if _, ok := set[n]; ok {
+			filtered = append(filtered, n)
+		}
+	}
+	return filtered
+}
+
 func computeRuntimeStateHash(runtime docker.Runtime, apps []manifest.Application) (string, error) {
 	sortedApps := append([]manifest.Application(nil), apps...)
 	sort.Slice(sortedApps, func(i, j int) bool {
@@ -291,13 +321,13 @@ func computeRuntimeStateHash(runtime docker.Runtime, apps []manifest.Application
 		if err != nil {
 			return "", err
 		}
-		snapshot.Env = envVars
+		snapshot.Env = runtimeEnvForDesired(envVars, app.Environment)
 
 		networks, err := runtime.ContainerNetworks(app.ContainerName())
 		if err != nil {
 			return "", err
 		}
-		snapshot.Networks = networks
+		snapshot.Networks = runtimeNetworksForDesired(networks, app.NetworkNames())
 
 		volumes, err := runtime.ContainerVolumes(app.ContainerName())
 		if err != nil {

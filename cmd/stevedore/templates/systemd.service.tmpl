@@ -8,6 +8,8 @@ StartLimitBurst=5
 [Service]
 Environment=STEVEDORE_HOME={{.StevedoreHome}}
 Environment=STEVEDORE_LOG_DIR={{.LogDir}}
+{{if .DockerConfigPath}}Environment=DOCKER_CONFIG={{.DockerConfigPath}}{{end}}
+{{if .DockerHomePath}}Environment=HOME={{.DockerHomePath}}{{end}}
 ExecStart={{.BinaryPath}} run
 Restart=on-failure
 RestartSec=30

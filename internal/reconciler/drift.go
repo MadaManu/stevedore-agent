@@ -12,21 +12,23 @@ import (
 // DriftReport describes the differences found between the desired manifest state
 // and the actual running container state.
 type DriftReport struct {
-	HasDrift        bool
-	ImageChanged    bool
-	CurrentImage    string
-	DesiredImage    string
-	PortDrifts      []PortDrift
-	EnvDrifts       map[string]EnvDrift
-	NetworkChanged  bool
-	CurrentNetwork  string
-	DesiredNetwork  string
-	VolumeChanged   bool
-	CurrentVolumes  []docker.VolumeMapping
-	DesiredVolumes  []docker.VolumeMapping
-	CurrentNetworks []string
-	DesiredNetworks []string
-	ConfigDrift     bool // restart policy or other hashed fields changed
+	HasDrift             bool
+	ImageChanged         bool
+	CurrentImage         string
+	DesiredImage         string
+	PortDrifts           []PortDrift
+	EnvDrifts            map[string]EnvDrift
+	IgnoredExtraEnv      map[string]string
+	NetworkChanged       bool
+	CurrentNetwork       string
+	DesiredNetwork       string
+	VolumeChanged        bool
+	CurrentVolumes       []docker.VolumeMapping
+	DesiredVolumes       []docker.VolumeMapping
+	CurrentNetworks      []string
+	DesiredNetworks      []string
+	IgnoredExtraNetworks []string
+	ConfigDrift          bool // restart policy or other hashed fields changed
 }
 
 // PortDrift describes a single port mapping that differs from desired state.
@@ -102,7 +104,8 @@ func (d DriftReport) Items() []string {
 // The container must already exist; callers should check ContainerExists before calling.
 func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport, error) {
 	report := DriftReport{
-		EnvDrifts: make(map[string]EnvDrift),
+		EnvDrifts:       make(map[string]EnvDrift),
+		IgnoredExtraEnv: make(map[string]string),
 	}
 
 	// 1. Image drift - resolve "latest" tag if needed
@@ -182,30 +185,25 @@ func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport
 		}
 	}
 
-	// Check for extra environment variables in actual container
-	// (only consider those that don't come from the base image)
+	// Track extra runtime environment variables so callers can log them, but
+	// do not treat them as reconciliation drift.
 	for actualKey, actualVal := range actualEnv {
 		if _, ok := desiredEnv[actualKey]; !ok {
-			// Only flag as drift if it's likely we set it (not from base image)
-			// We consider user-set variables (those not in standard base image vars)
-			if isLikelyUserSetEnvVar(actualKey) {
-				report.HasDrift = true
-				report.EnvDrifts[actualKey] = EnvDrift{
-					Name:    actualKey,
-					Current: actualVal,
-					Added:   true,
-				}
-			}
+			report.IgnoredExtraEnv[actualKey] = actualVal
 		}
 	}
 
-	// 4. Network drift
+	// 4. Network drift — only desired networks that are missing from actual
+	// trigger drift. Extra runtime-only networks (e.g. Docker's default
+	// bridge) are recorded for informational logging but do not cause
+	// reconciliation.
 	actualNetworks, err := runtime.ContainerNetworks(app.ContainerName())
 	if err != nil {
 		return report, err
 	}
 	desiredNetworks := app.NetworkNames()
-	if !stringSlicesEqual(actualNetworks, desiredNetworks) {
+	missingNetworks := missingStrings(desiredNetworks, actualNetworks)
+	if len(missingNetworks) > 0 {
 		report.HasDrift = true
 		report.NetworkChanged = true
 		report.CurrentNetworks = actualNetworks
@@ -213,6 +211,7 @@ func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport
 		report.CurrentNetwork = summarizeStrings(actualNetworks)
 		report.DesiredNetwork = summarizeStrings(desiredNetworks)
 	}
+	report.IgnoredExtraNetworks = extraStrings(actualNetworks, desiredNetworks)
 
 	// 5. Volume drift
 	actualVolumes, err := runtime.ContainerVolumes(app.ContainerName())
@@ -265,6 +264,36 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
+// missingStrings returns elements of needles not present in haystack.
+func missingStrings(needles, haystack []string) []string {
+	set := make(map[string]struct{}, len(haystack))
+	for _, s := range haystack {
+		set[s] = struct{}{}
+	}
+	var missing []string
+	for _, s := range needles {
+		if _, ok := set[s]; !ok {
+			missing = append(missing, s)
+		}
+	}
+	return missing
+}
+
+// extraStrings returns elements of actual not present in desired.
+func extraStrings(actual, desired []string) []string {
+	set := make(map[string]struct{}, len(desired))
+	for _, s := range desired {
+		set[s] = struct{}{}
+	}
+	var extra []string
+	for _, s := range actual {
+		if _, ok := set[s]; !ok {
+			extra = append(extra, s)
+		}
+	}
+	return extra
+}
+
 func desiredVolumeMappings(app manifest.Application) []docker.VolumeMapping {
 	volumes := app.VolumeMappings()
 	result := make([]docker.VolumeMapping, 0, len(volumes))
@@ -298,27 +327,4 @@ func summarizeVolumes(volumes []docker.VolumeMapping) string {
 		items = append(items, fmt.Sprintf("%s:%s", volume.HostPath, volume.MountPath))
 	}
 	return strings.Join(items, ", ")
-}
-
-// isLikelyUserSetEnvVar returns true if the environment variable name suggests it was
-// user-set rather than coming from the base image.
-func isLikelyUserSetEnvVar(name string) bool {
-	// List of common environment variables from base images that we should ignore
-	baseImageVars := map[string]bool{
-		"PATH":           true,
-		"HOSTNAME":       true,
-		"HOME":           true,
-		"LANG":           true,
-		"LC_ALL":         true,
-		"TERM":           true,
-		"GPG_KEY":        true,
-		"NGINX_VERSION":  true,
-		"NJS_VERSION":    true,
-		"NJS_RELEASE":    true,
-		"ACME_VERSION":   true,
-		"PKG_RELEASE":    true,
-		"DYNPKG_RELEASE": true,
-		// Add more as needed
-	}
-	return !baseImageVars[name]
 }
