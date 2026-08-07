@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"stevedore-agent/internal/config"
+	"stevedore-agent/internal/manifest"
 	"stevedore-agent/internal/secrets"
 )
 
@@ -68,6 +69,7 @@ type systemDeps struct {
 	readDir  func(string) ([]fs.DirEntry, error)
 	stat     func(string) (fs.FileInfo, error)
 	glob     func(string) ([]string, error)
+	hostFQDN func() (string, error)
 	lookPath func(string) (string, error)
 	runCmd   func(string, ...string) ([]byte, error)
 	access   func(string, uint32) error
@@ -79,6 +81,7 @@ func defaultSystemDeps() systemDeps {
 		readDir:  os.ReadDir,
 		stat:     os.Stat,
 		glob:     filepath.Glob,
+		hostFQDN: manifest.HostFQDN,
 		lookPath: exec.LookPath,
 		runCmd:   runSystemCommand,
 		access:   syscall.Access,
@@ -221,42 +224,117 @@ func runWithDeps(deps systemDeps) Report {
 		}
 	} else {
 		report.Checks = append(report.Checks, checkReadableDirectory("local source repository", cfg.Source.Local.Path, deps,
-			fmt.Sprintf("Ensure source.local.path points at the directory containing apps/ manifests, or update %s", report.ConfigPath),
+			fmt.Sprintf("Ensure source.local.path points at the repository containing apps/ and/or <fqdn>/apps/ manifests, or update %s", report.ConfigPath),
 		))
-		report.Checks = append(report.Checks, checkReadableDirectory("apps directory", filepath.Join(cfg.RepoRoot(), "apps"), deps,
-			"Create an apps/ directory in the configured local source repository",
-		))
-		manifestPaths, globErr := deps.glob(filepath.Join(cfg.RepoRoot(), "apps", "*", "stevedore.yml"))
-		if globErr != nil {
+
+		fqdn, fqdnErr := deps.hostFQDN()
+		if fqdnErr != nil {
 			report.Checks = append(report.Checks, CheckResult{
 				Name:    "manifest discovery",
 				Status:  StatusFail,
-				Summary: "failed to enumerate app manifests",
-				Tried:   []string{filepath.Join(cfg.RepoRoot(), "apps", "*", "stevedore.yml")},
-				Detail:  globErr.Error(),
+				Summary: "failed to resolve host FQDN",
+				Detail:  fqdnErr.Error(),
 				Suggestions: []string{
-					"Verify the local source path is a normal filesystem path and that app manifests are stored as apps/<name>/stevedore.yml",
-				},
-			})
-		} else if len(manifestPaths) == 0 {
-			report.Checks = append(report.Checks, CheckResult{
-				Name:    "manifest discovery",
-				Status:  StatusWarn,
-				Summary: "no app manifests were found",
-				Tried:   []string{filepath.Join(cfg.RepoRoot(), "apps", "*", "stevedore.yml")},
-				Suggestions: []string{
-					"Add manifests at apps/<app>/stevedore.yml so the agent has desired state to reconcile",
+					"Ensure hostname -f returns the host FQDN used by your repository layout",
 				},
 			})
 		} else {
-			sort.Strings(manifestPaths)
-			report.Checks = append(report.Checks, CheckResult{
-				Name:    "manifest discovery",
-				Status:  StatusPass,
-				Summary: fmt.Sprintf("found %d app manifest(s)", len(manifestPaths)),
-				Tried:   []string{filepath.Join(cfg.RepoRoot(), "apps", "*", "stevedore.yml")},
-				Detail:  strings.Join(manifestPaths, "\n"),
-			})
+			hostAppsDir := filepath.Join(cfg.RepoRoot(), fqdn, "apps")
+			defaultAppsDir := filepath.Join(cfg.RepoRoot(), "apps")
+
+			hostExists, hostExistsErr := directoryExists(hostAppsDir, deps.stat)
+			if hostExistsErr != nil {
+				report.Checks = append(report.Checks, CheckResult{
+					Name:    "host apps directory",
+					Status:  StatusFail,
+					Summary: "failed to inspect host-specific apps directory",
+					Tried:   []string{hostAppsDir},
+					Detail:  hostExistsErr.Error(),
+				})
+			} else if hostExists {
+				report.Checks = append(report.Checks, checkReadableDirectory("host apps directory", hostAppsDir, deps,
+					"Ensure the host-specific apps directory is readable",
+				))
+			}
+
+			defaultExists, defaultExistsErr := directoryExists(defaultAppsDir, deps.stat)
+			if defaultExistsErr != nil {
+				report.Checks = append(report.Checks, CheckResult{
+					Name:    "apps directory",
+					Status:  StatusFail,
+					Summary: "failed to inspect shared apps directory",
+					Tried:   []string{defaultAppsDir},
+					Detail:  defaultExistsErr.Error(),
+				})
+			} else if defaultExists {
+				report.Checks = append(report.Checks, checkReadableDirectory("apps directory", defaultAppsDir, deps,
+					"Ensure the shared apps directory is readable",
+				))
+			}
+
+			patterns := make([]string, 0, 2)
+			if hostExists {
+				patterns = append(patterns, filepath.Join(hostAppsDir, "*", "stevedore.yml"))
+			}
+			if defaultExists {
+				patterns = append(patterns, filepath.Join(defaultAppsDir, "*", "stevedore.yml"))
+			}
+
+			manifestPaths := make([]string, 0)
+			for _, pattern := range patterns {
+				matches, globErr := deps.glob(pattern)
+				if globErr != nil {
+					report.Checks = append(report.Checks, CheckResult{
+						Name:    "manifest discovery",
+						Status:  StatusFail,
+						Summary: "failed to enumerate app manifests",
+						Tried:   patterns,
+						Detail:  globErr.Error(),
+						Suggestions: []string{
+							"Verify manifests are stored as apps/<name>/stevedore.yml or <fqdn>/apps/<name>/stevedore.yml",
+						},
+					})
+					patterns = nil
+					break
+				}
+				manifestPaths = append(manifestPaths, matches...)
+			}
+
+			if patterns == nil {
+				// manifest discovery failure already recorded above
+			} else if len(patterns) == 0 {
+				report.Checks = append(report.Checks, CheckResult{
+					Name:    "manifest discovery",
+					Status:  StatusWarn,
+					Summary: "no apps directory was found for host-specific or shared manifests",
+					Tried: []string{
+						hostAppsDir,
+						defaultAppsDir,
+					},
+					Suggestions: []string{
+						"Create <fqdn>/apps/<app>/stevedore.yml for host-specific apps and/or apps/<app>/stevedore.yml for shared apps",
+					},
+				})
+			} else if len(manifestPaths) == 0 {
+				report.Checks = append(report.Checks, CheckResult{
+					Name:    "manifest discovery",
+					Status:  StatusWarn,
+					Summary: "no app manifests were found",
+					Tried:   patterns,
+					Suggestions: []string{
+						"Add manifests at <fqdn>/apps/<app>/stevedore.yml and/or apps/<app>/stevedore.yml so the agent has desired state to reconcile",
+					},
+				})
+			} else {
+				sort.Strings(manifestPaths)
+				report.Checks = append(report.Checks, CheckResult{
+					Name:    "manifest discovery",
+					Status:  StatusPass,
+					Summary: fmt.Sprintf("found %d app manifest(s)", len(manifestPaths)),
+					Tried:   patterns,
+					Detail:  strings.Join(manifestPaths, "\n"),
+				})
+			}
 		}
 	}
 
@@ -287,6 +365,17 @@ func runWithDeps(deps systemDeps) Report {
 	}
 
 	return report
+}
+
+func directoryExists(path string, statFn func(string) (fs.FileInfo, error)) (bool, error) {
+	info, err := statFn(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.IsDir(), nil
 }
 
 func (r Report) FailureCount() int {

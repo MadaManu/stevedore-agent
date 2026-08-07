@@ -71,3 +71,32 @@ func TestHashManifestsChangesOnAdd(t *testing.T) {
 		t.Fatal("hash should change when a new manifest is added")
 	}
 }
+
+func TestHashManifestsIncludesHostSpecificApps(t *testing.T) {
+	tmp := t.TempDir()
+	fqdn, err := HostFQDN()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := HashManifests(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hostAppDir := filepath.Join(tmp, fqdn, "apps", "demo")
+	if err := os.MkdirAll(hostAppDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostAppDir, "stevedore.yml"), []byte("image:\n  repository: nginx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := HashManifests(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("hash should change when a host-specific manifest is added")
+	}
+}

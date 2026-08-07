@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"stevedore-agent/internal/secrets"
@@ -349,5 +350,38 @@ volumes:
 
 	if _, err := LoadApplications(tmp, nil); err == nil {
 		t.Fatal("expected duplicate mount path across volume and volumes to fail")
+	}
+}
+
+func TestLoadApplicationsFailsOnDuplicateAppAcrossHostAndSharedDirs(t *testing.T) {
+	tmp := t.TempDir()
+	fqdn, err := HostFQDN()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sharedAppDir := filepath.Join(tmp, "apps", "demo")
+	hostAppDir := filepath.Join(tmp, fqdn, "apps", "demo")
+	for _, dir := range []string{sharedAppDir, hostAppDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := `image:
+  repository: nginx
+`
+		if err := os.WriteFile(filepath.Join(dir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = LoadApplications(tmp, nil)
+	if err == nil {
+		t.Fatal("expected duplicate app name across host and shared manifests to fail")
+	}
+	if !strings.Contains(err.Error(), "duplicate application name") {
+		t.Fatalf("expected duplicate app name error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join(sharedAppDir, "stevedore.yml")) || !strings.Contains(err.Error(), filepath.Join(hostAppDir, "stevedore.yml")) {
+		t.Fatalf("expected error to include both duplicate manifest paths, got %v", err)
 	}
 }

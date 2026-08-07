@@ -5,20 +5,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 )
 
 // HashManifests returns a stable SHA-256 digest over all manifest files under
-// <repoRoot>/apps/*/stevedore.yml. The digest changes whenever any manifest is
+// host-aware manifest directories. The digest changes whenever any manifest is
 // added, removed, or edited, making it suitable for cheap change detection.
 func HashManifests(repoRoot string) (string, error) {
-	pattern := filepath.Join(repoRoot, "apps", "*", "stevedore.yml")
-	paths, err := filepath.Glob(pattern)
+	paths, err := DiscoverManifestPaths(repoRoot)
 	if err != nil {
-		return "", fmt.Errorf("glob manifests: %w", err)
+		return "", err
 	}
-	sort.Strings(paths)
 
 	h := sha256.New()
 	for _, p := range paths {

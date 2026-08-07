@@ -100,6 +100,9 @@ func runAgent() error {
 		newState, err := reconcileCycle(ctx, cfg, r, secretResolver, lastState)
 		if err != nil {
 			slog.ErrorContext(logging.SecurityContext(context.Background(), "run"), "reconcile cycle failed", slog.String("error", err.Error()))
+			if isFatalReconcileError(err) {
+				return err
+			}
 		} else {
 			lastState = newState
 		}
@@ -113,6 +116,11 @@ func runAgent() error {
 			slog.DebugContext(ctx, "ticker fired, continuing to next cycle")
 		}
 	}
+}
+
+func isFatalReconcileError(err error) bool {
+	var fqdnErr *manifest.FQDNResolutionError
+	return errors.As(err, &fqdnErr)
 }
 
 func explainConfigLoadError(err error) error {
@@ -387,8 +395,8 @@ func computeDesiredStateHash(apps []manifest.Application) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// syncSource ensures the manifests are present locally and returns the repo root
-// that contains the apps/ directory.
+// syncSource ensures the manifests are present locally and returns the manifest
+// repository root.
 func syncSource(ctx context.Context, cfg *config.Config) (string, error) {
 	if cfg.Source.IsGit() {
 		g := cfg.Source.Git

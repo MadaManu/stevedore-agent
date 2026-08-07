@@ -163,7 +163,8 @@ type Source struct {
 	Git   *GitSource   `yaml:"git"`
 }
 
-// LocalSource points at a filesystem repository root (containing an apps/ dir).
+// LocalSource points at a filesystem repository root containing shared apps/
+// and/or host-specific <fqdn>/apps/ manifests.
 type LocalSource struct {
 	Path string `yaml:"path"`
 }
@@ -445,8 +446,8 @@ func (a GitAuth) validate() error {
 	return nil
 }
 
-// RepoRoot returns the directory that contains the apps/ folder for the current
-// source. For git sources this is the checkout workdir.
+// RepoRoot returns the manifest repository root for the current source.
+// For git sources this is the checkout workdir.
 func (c *Config) RepoRoot() string {
 	if c.Source.Git != nil {
 		return c.Source.Git.Workdir

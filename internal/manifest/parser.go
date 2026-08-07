@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,25 +14,24 @@ import (
 const ()
 
 func LoadApplications(repoRoot string, secretResolver SecretResolver) ([]Application, error) {
-	pattern := filepath.Join(repoRoot, "apps", "*", "stevedore.yml")
-	paths, err := filepath.Glob(pattern)
+	paths, err := DiscoverManifestPaths(repoRoot)
 	if err != nil {
-		return nil, fmt.Errorf("glob manifests: %w", err)
+		return nil, err
 	}
 
 	apps := make([]Application, 0, len(paths))
-	seen := map[string]string{}
+	seen := map[string][]string{}
 	for _, p := range paths {
 		app, err := LoadApplicationFromPath(p)
 		if err != nil {
 			return nil, err
 		}
 		name := app.Metadata.Name
-		if prev, ok := seen[name]; ok {
-			return nil, fmt.Errorf("duplicate application name %q in %s and %s", name, prev, p)
-		}
-		seen[name] = p
+		seen[name] = append(seen[name], p)
 		apps = append(apps, app)
+	}
+	if err := validateUniqueApplicationNames(seen); err != nil {
+		return nil, err
 	}
 
 	if err := resolveAllApplications(apps, secretResolver); err != nil {
@@ -39,6 +39,23 @@ func LoadApplications(repoRoot string, secretResolver SecretResolver) ([]Applica
 	}
 
 	return apps, nil
+}
+
+func validateUniqueApplicationNames(pathsByAppName map[string][]string) error {
+	duplicates := make([]string, 0)
+	for name, paths := range pathsByAppName {
+		if len(paths) < 2 {
+			continue
+		}
+		sortedPaths := append([]string(nil), paths...)
+		sort.Strings(sortedPaths)
+		duplicates = append(duplicates, fmt.Sprintf("%q in %s", name, strings.Join(sortedPaths, ", ")))
+	}
+	if len(duplicates) == 0 {
+		return nil
+	}
+	sort.Strings(duplicates)
+	return fmt.Errorf("duplicate application names detected: %s", strings.Join(duplicates, "; "))
 }
 
 func LoadApplicationFromPath(path string) (Application, error) {

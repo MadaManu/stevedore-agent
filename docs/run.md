@@ -33,7 +33,7 @@ of truth are still detected every cycle; only the agent's own config is fixed.)
                  └───────────────┬──────────────────────┘
                                  ▼
                  ┌──────────────────────────────────────┐
-                 │ hash all apps/*/stevedore.yml files  │
+                 │ hash host-aware manifest files        │
                  └───────────────┬──────────────────────┘
                                  ▼
                     changed since last cycle?
@@ -58,7 +58,7 @@ Each cycle:
 3. **Load and resolve manifests** (including `${provider:path}` placeholders)
    and compute a desired-state hash from the resolved application specs.
 4. **Detect changes** by comparing:
-   - manifest file hash (`apps/*/stevedore.yml` content + path)
+   - manifest file hash (`<fqdn>/apps/*/stevedore.yml` and `apps/*/stevedore.yml`, content + path)
    - resolved desired-state hash
    - runtime snapshot hash
 5. **Decide**
@@ -162,7 +162,7 @@ present** — there is no `type` or `method` discriminator field.
 |-------|------|-------------|
 | `logging.dir` | string | Directory for `stevedore.log`. Default `/var/log/stevedore`. |
 | `logging.debug` | bool | Verbose logging. Default `false`. |
-| `source.local.path` | string | Repo root (containing `apps/`). Required for a local source. |
+| `source.local.path` | string | Repo root (containing `apps/` and/or `<fqdn>/apps/`). Required for a local source. |
 | `source.git.url` | string | Git remote URL. Required for a git source. |
 | `source.git.branch` | string | Branch to track. Default `main`. |
 | `source.git.workdir` | string | Checkout location. Default `<STEVEDORE_HOME>/git-source` (or `/etc/stevedore/git-source` when `STEVEDORE_HOME` is unset). |
@@ -364,19 +364,22 @@ interactive credential prompt.
 
 ## Repository layout expected at the source
 
-The source root must contain an `apps/` directory with one folder per
-application, each holding a `stevedore.yml`:
+The source root may contain shared and host-specific app manifests:
 
 ```
 <repo-root>/
+  <fqdn>/
+    apps/
+      host-only-app/
+        stevedore.yml
   apps/
-    demo/
-      stevedore.yml
-    demo-api/
+    shared-app/
       stevedore.yml
 ```
 
-This is the standard Stevedore repository layout consumed by the agent.
+Stevedore loads `<repo-root>/<fqdn>/apps` (for this host) and `<repo-root>/apps`
+(shared). If both define the same app folder name, startup fails with a
+duplicate-app error.
 
 ## Running as a service
 
@@ -444,4 +447,3 @@ sudo stevedore-agent install-service \
 ```
 
 For detailed setup instructions and troubleshooting, see [`docs/docker-private-registry.md`](./docker-private-registry.md).
-

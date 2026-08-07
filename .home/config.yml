@@ -16,7 +16,9 @@ logging:
 
 source:
   local:
-    # Directory that contains an apps/ folder with <app>/stevedore.yml manifests.
+    # Repository root that may contain:
+    # - shared manifests: apps/<app>/stevedore.yml
+    # - host-specific manifests: <fqdn>/apps/<app>/stevedore.yml
     path: /Users/username/workspace/general/stevedore-agent/.home/setup
 
 poll:

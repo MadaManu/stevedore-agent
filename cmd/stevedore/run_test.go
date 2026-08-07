@@ -495,3 +495,16 @@ func TestReconcileApps_NoErrors(t *testing.T) {
 		t.Fatalf("expected 2 pull attempts, got %d", len(rt.pulledApps))
 	}
 }
+
+func TestIsFatalReconcileError_FQDNResolutionError(t *testing.T) {
+	err := &manifest.FQDNResolutionError{}
+	if !isFatalReconcileError(err) {
+		t.Fatal("expected FQDN resolution errors to be fatal")
+	}
+}
+
+func TestIsFatalReconcileError_NonFatalError(t *testing.T) {
+	if isFatalReconcileError(errors.New("temporary reconcile error")) {
+		t.Fatal("expected non-FQDN errors to be non-fatal")
+	}
+}

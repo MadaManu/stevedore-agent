@@ -16,6 +16,7 @@ func testDeps() systemDeps {
 		readDir:  os.ReadDir,
 		stat:     os.Stat,
 		glob:     filepath.Glob,
+		hostFQDN: func() (string, error) { return "host.example.com", nil },
 		lookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
 		runCmd:   func(string, ...string) ([]byte, error) { return []byte("ok"), nil },
 		access:   func(string, uint32) error { return nil },
