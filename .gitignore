@@ -1,1 +1,11 @@
 /.idea/
+
+# Local development/runtime artifacts
+/.home/
+/dist/
+/stevedore-agent
+/stevedore-agent-*
+*.log
+
+# OS/editor noise
+.DS_Store

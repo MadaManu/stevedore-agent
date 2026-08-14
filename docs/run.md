@@ -1,449 +1,89 @@
-# Stevedore `run` — continuous reconciliation
+# Running stevedore-agent
 
-The `run` command turns Stevedore into a long-running agent. It continuously
-watches a **source of truth** (a local directory or a git repository) and applies
-any changes it finds, on a configurable schedule.
+The `run` command starts a continuous reconciliation loop.
 
 ```bash
-stevedore-agent run                 # loads config, then runs continuously
-STEVEDORE_HOME=/etc/stevedore stevedore-agent run
-STEVEDORE_DEBUG=true stevedore-agent run   # verbose per-cycle tracing
-```
-
-Before starting the agent, you can validate the effective configuration and
-local prerequisites with [`stevedore-agent doctor`](./doctor.md).
-
-Configuration is **loaded and validated exactly once at startup** and then
-treated as immutable for the life of the process. Nothing is hot-reloaded — to
-pick up config changes, restart the process. (Manifest changes from the source
-of truth are still detected every cycle; only the agent's own config is fixed.)
-
-## High-level flow
-
-```
-        ┌────────────────────────────────────────────────────────┐
-        │ startup: load + validate config (once)                 │
-        └───────────────────────────┬────────────────────────────┘
-                                    │
-                                    ▼
-                 ┌──────────────────────────────────────┐
-                 │ sync source of truth                 │
-                 │  - git:  clone (first) / fetch+reset  │
-                 │  - local: use path directly           │
-                 └───────────────┬──────────────────────┘
-                                 ▼
-                 ┌──────────────────────────────────────┐
-                 │ hash host-aware manifest files        │
-                 └───────────────┬──────────────────────┘
-                                 ▼
-                    changed since last cycle?
-                     │                      │
-                 no  │                      │ yes
-                     ▼                      ▼
-             sleep(interval)              reconcile
-                     │                      │
-                     └───────────┬──────────┘
-                                 ▼
-                          wait for next tick
-                        (or exit on SIGINT/SIGTERM)
+stevedore-agent run
 ```
 
 Each cycle:
 
-1. **Config is already loaded** (done once at startup — see below).
-2. **Sync the source of truth**
-   - `git`: clones into the workdir on first run, then `fetch` + `reset --hard`
-     to the configured branch on subsequent runs.
-   - `local`: uses the configured filesystem path as-is.
-3. **Load and resolve manifests** (including `${provider:path}` placeholders)
-   and compute a desired-state hash from the resolved application specs.
-4. **Detect changes** by comparing:
-   - manifest file hash (`<fqdn>/apps/*/stevedore.yml` and `apps/*/stevedore.yml`, content + path)
-   - resolved desired-state hash
-   - runtime snapshot hash
-5. **Decide**
-   - If all hashes are unchanged, the agent logs a debug line and sleeps for
-     the configured interval.
-   - If any hash changed (or on the first cycle), it reconciles every
-     application (create/update/remove containers to match the manifests).
-6. **Repeat** on the next tick. `SIGINT`/`SIGTERM` triggers graceful shutdown.
+1. Sync source of truth (`source.local` or `source.git`)
+2. Discover manifests (`<fqdn>/apps/*/stevedore.yml` + `apps/*/stevedore.yml`)
+3. Resolve placeholders and compute desired/runtime hashes
+4. Reconcile drift by creating/updating containers and plugin resources
+5. Sleep until next `poll.interval`
 
-## Manifest networks
+Use `stevedore-agent doctor` before `run` to validate local setup.
 
-Stevedore supports attaching each app container to multiple Docker networks.
+## Config file and precedence
 
-- Preferred format: `networks` (list of `{ name: ... }` entries).
-- Legacy-compatible format: `network` (single `{ name: ... }` block).
-- If both are present, `network.name` is treated as the first entry.
-- Network names must be unique after trimming whitespace.
+- Path: `${STEVEDORE_HOME}/config.yml`
+- Default home: `/etc/stevedore`
+- Precedence: **environment overrides > config file > defaults**
 
-During reconcile, Stevedore ensures each desired network exists and then attaches
-the container to all declared networks.
+## Configuration reference
 
-Example:
+| Field | Type | Notes |
+|---|---|---|
+| `logging.dir` | string | Default `/var/log/stevedore` |
+| `logging.debug` | bool | Default `false` |
+| `poll.interval` | duration | Default `30s` |
+| `source.local.path` | string | Required when `source.local` is used |
+| `source.git.url` | string | Required when `source.git` is used |
+| `source.git.branch` | string | Default `main` |
+| `source.git.workdir` | string | Default `<STEVEDORE_HOME>/git-source` |
+| `source.git.auth.token.value` | string | Optional, `${ENV}` supported |
+| `source.git.auth.basic.username/password` | string | Optional, `${ENV}` supported |
+| `source.git.auth.ssh.keyPath` | string | Optional, `${ENV}` supported |
+| `secrets.providers.local.file` | string | Local YAML/JSON secrets store |
+| `exposure.apache.sitesDir` | string | Required only when Apache exposure is used |
 
-```yaml
-image:
-  repository: nginx
-ports:
-  - name: http
-    containerPort: 80
-    hostPort: 8081
-networks:
-  - name: demo         # primary network (first entry)
-  - name: demo-shared  # additional network
-```
+Rules:
 
-## Manifest volumes
+- Exactly one of `source.local` or `source.git`
+- At most one of `source.git.auth.token`, `basic`, `ssh`
 
-Stevedore supports attaching each app container to multiple bind mounts.
-
-- Preferred format: `volumes` (list of entries).
-- Legacy-compatible format: `volume` (single entry).
-- If both are present, `volume` is treated as the first entry.
-- Every entry must include both `hostPath` and `mountPath`.
-- `mountPath` values must be unique per app.
-
-During reconcile:
-
-1. Stevedore ensures each `hostPath` directory exists (creates it when missing).
-2. It creates containers with all declared bind mounts.
-3. It compares runtime bind mounts against desired state; mount drift triggers
-   container recreation.
-
-Volume declarations are also part of desired-state and runtime hashing, so
-changes to either desired mounts or live mounts are detected on the next cycle.
-
-Example:
-
-```yaml
-image:
-  repository: nginx
-volumes:
-  - name: data
-    hostPath: /var/lib/stevedore/demo-api/data
-    mountPath: /srv/data
-  - name: cache
-    hostPath: /var/lib/stevedore/demo-api/cache
-    mountPath: /srv/cache
-```
-
-Legacy-compatible single-entry form:
-
-```yaml
-volume:
-  hostPath: /var/lib/stevedore/demo-api/data
-  mountPath: /srv/data
-```
-
-## Configuration
-
-Configuration is loaded **once at startup** with the precedence:
-
-> **ENV overrides > config file values > built-in defaults**
-
-Resolution order for the config file location:
-
-1. `STEVEDORE_HOME` environment variable (directory)
-2. `/etc/stevedore/config.yml` (default)
-
-### Schema
-
-The active source and git auth method are **inferred from which node is
-present** — there is no `type` or `method` discriminator field.
-
-- Under `source`, define **exactly one** of `local` or `git`. Defining both, or
-  neither, is a validation error.
-- Under `source.git.auth`, define **at most one** of `token`, `basic`, or `ssh`.
-  Omit `auth` entirely for public repositories. Defining more than one is a
-  validation error.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `logging.dir` | string | Directory for `stevedore.log`. Default `/var/log/stevedore`. |
-| `logging.debug` | bool | Verbose logging. Default `false`. |
-| `source.local.path` | string | Repo root (containing `apps/` and/or `<fqdn>/apps/`). Required for a local source. |
-| `source.git.url` | string | Git remote URL. Required for a git source. |
-| `source.git.branch` | string | Branch to track. Default `main`. |
-| `source.git.workdir` | string | Checkout location. Default `<STEVEDORE_HOME>/git-source` (or `/etc/stevedore/git-source` when `STEVEDORE_HOME` is unset). |
-| `source.git.auth.token.value` | string | Token (present ⇒ token auth). Supports `${ENV}`. |
-| `source.git.auth.basic.username` / `password` | string | Basic auth (present ⇒ basic auth). Supports `${ENV}`. |
-| `source.git.auth.ssh.keyPath` | string | Private key path (present ⇒ ssh auth). Supports `${ENV}`. |
-| `secrets.providers.local.file` | string | Path to YAML/JSON secrets store used by `${local:...}` placeholders. |
-| `poll.interval` | duration | How often to check. Default `30s` (e.g. `15s`, `5m`, `1h`). |
-| `exposure.apache.sitesDir` | string | Apache vhost output dir. **Optional** — required only when an app uses `expose.provider: apache`. Overridable by `STEVEDORE_APACHE_SITES_DIR`. |
-
-### Environment overrides
-
-Each of these, when set, wins over the corresponding config-file value:
+## Environment overrides
 
 | Variable | Overrides |
-|----------|-----------|
-| `STEVEDORE_HOME` | Config home directory (config is read from `<home>/config.yml`). |
+|---|---|
+| `STEVEDORE_HOME` | config home directory |
 | `STEVEDORE_LOG_DIR` | `logging.dir` |
-| `STEVEDORE_DEBUG` | `logging.debug` (bool) |
-| `STEVEDORE_POLL_INTERVAL` | `poll.interval` (Go duration) |
-| `STEVEDORE_APACHE_SITES_DIR` | `exposure.apache.sitesDir` — also activates the apache provider if not already configured in the file. |
+| `STEVEDORE_DEBUG` | `logging.debug` |
+| `STEVEDORE_POLL_INTERVAL` | `poll.interval` |
 | `STEVEDORE_WORKDIR` | `source.git.workdir` |
+| `STEVEDORE_APACHE_SITES_DIR` | `exposure.apache.sitesDir` |
 
-### Secrets
+## Manifest model highlights
 
-Secret-bearing git auth fields (`token.value`, `basic.username`,
-`basic.password`, `ssh.keyPath`) support `${ENV_VAR}` interpolation. Prefer
-injecting secrets via environment variables (or a secrets manager) rather than
-committing them to the config file:
+- App name is derived from folder name.
+- Duplicate app names across host/shared trees fail startup.
+- `networks` and `volumes` support multi-entry declarations.
+- Legacy `network` and `volume` fields are still accepted.
+- Secret placeholders use `${provider:path}` (currently `local` provider).
 
-```yaml
-source:
-  git:
-    auth:
-      token:
-        value: ${GIT_TOKEN}
-```
+Examples:
 
-Manifests also support runtime secret placeholders in the form `${provider:path}`.
-These are resolved during reconciliation (not at startup), so sensitive values
-are only loaded when needed.
+- [examples/config/local.yml](../examples/config/local.yml)
+- [examples/config/git.yml](../examples/config/git.yml)
+- [examples/config/secrets.local.yml](../examples/config/secrets.local.yml)
 
-Today, `local` is supported:
+## Running as a systemd service
 
-```yaml
-# config.yml
-secrets:
-  providers:
-    local:
-      file: /etc/stevedore/secrets.yml
-```
-
-```yaml
-# apps/demo-ui/stevedore.yml
-environment:
-  API_TOKEN: "${local:api/token}"
-```
-
-The local store file can be YAML or JSON and supports nested paths using `/`
-(for example `api/token` or `nested/list/0`).
-
-### Exposure providers
-
-Exposure providers are **optional** and configured under `exposure`. A provider
-is only required when at least one app in your manifests sets `expose.enabled:
-true` and `expose.provider` to that provider name. No provider configuration is
-needed if none of your apps use `expose`.
-
-The active provider(s) are inferred from which nodes are present under
-`exposure` — there is no explicit list.
-
-#### Apache
-
-The `apache` provider writes Apache VirtualHost configuration files to the
-configured `sites-enabled` directory, handles Let's Encrypt certificate
-issuance/renewal (when `ssl: true`), and reloads Apache.
-
-Full documentation, all `expose.config` parameters, generated vhost examples,
-and a troubleshooting guide: **[`docs/apache-exposure.md`](./apache-exposure.md)**
-
-```yaml
-# config.yml
-exposure:
-  apache:
-    sitesDir: /etc/apache2/sites-enabled   # required when using apache
-```
-
-Minimal HTTP-only app manifest:
-
-```yaml
-# apps/demo-api/stevedore.yml
-expose:
-  enabled: true
-  provider: apache
-  config:
-    domain: api.example.com
-    ssl: false
-```
-
-HTTPS app manifest (Let's Encrypt):
-
-```yaml
-expose:
-  enabled: true
-  provider: apache
-  config:
-    domain: api.example.com
-    ssl: true
-    email: ops@example.com     # required for Let's Encrypt registration
-```
-
-`expose.config` fields:
-
-| Field     | Required              | Default                | Description |
-|-----------|-----------------------|------------------------|-------------|
-| `domain`  | **yes**               | —                      | Public hostname; must resolve to this server. |
-| `ssl`     | no                    | `false`                | Enable HTTPS via Let's Encrypt. |
-| `email`   | **yes when ssl:true** | —                      | Let's Encrypt account / expiry notifications. |
-| `webroot` | no                    | `/var/www/letsencrypt` | ACME HTTP-01 challenge directory. |
-| `port`    | no                    | first `hostPort`       | Override proxy target port. |
-
-The `sitesDir` can also be set via the `STEVEDORE_APACHE_SITES_DIR` environment
-variable, which activates the provider even if `exposure.apache` is absent from
-`config.yml`.
-
-#### Local secrets store structure (example)
-
-Sample file: [`examples/config/secrets.local.yml`](../examples/config/secrets.local.yml)
-
-```yaml
-# examples/config/secrets.local.yml
-api:
-  token: demo-api-token
-database:
-  host: localhost
-  port: 5432
-  credentials:
-    username: demo_user
-    password: demo_password
-services:
-  - name: billing
-    apiKey: billing-key-1
-```
-
-Configure `stevedore` to use that file:
-
-```yaml
-# config.yml
-source:
-  local:
-    path: /srv/stevedore/apps-repo
-secrets:
-  providers:
-    local:
-      # Absolute path (recommended in production)
-      file: /etc/stevedore/secrets.yml
-      # Relative paths are resolved from the folder containing config.yml
-      # file: ./secrets.local.yml
-```
-
-Reference secrets from app manifests:
-
-```yaml
-# apps/demo-ui/stevedore.yml
-environment:
-  API_TOKEN: "${local:api/token}"
-  DB_HOST: "${local:database/host}"
-  DB_PASSWORD: "${local:database/credentials/password}"
-  BILLING_API_KEY: "${local:services/0/apiKey}"
-```
-
-Notes:
-
-- Paths are `/`-separated and can include list indices (`services/0/apiKey`).
-- Resolved values must be scalar (`string`, `number`, `bool`); maps/lists are rejected.
-- Placeholders are resolved during reconcile execution, not at process startup.
-
-## Authentication details
-
-The auth method is inferred from which node is present under `source.git.auth`:
-
-- **token** — the `token.value` is injected into the `https://` remote URL as
-  `x-access-token:<token>@…`. Requires an `https` URL.
-- **basic** — `basic.username`/`basic.password` are injected into the `https://`
-  remote URL.
-- **ssh** — an `ssh` remote URL is used with `GIT_SSH_COMMAND` pointing at
-  `ssh.keyPath` (`IdentitiesOnly=yes`, `StrictHostKeyChecking=accept-new`).
-- **none** — when `auth` is omitted, the URL is used unchanged (public repos).
-
-Git is always run with `GIT_TERMINAL_PROMPT=0` so the daemon never blocks on an
-interactive credential prompt.
-
-## Example configs
-
-- Local source: [`examples/config/local.yml`](../examples/config/local.yml)
-- Git source: [`examples/config/git.yml`](../examples/config/git.yml)
-- Local secrets store sample: [`examples/config/secrets.local.yml`](../examples/config/secrets.local.yml)
-- Doctor command: [`docs/doctor.md`](./doctor.md)
-
-## Repository layout expected at the source
-
-The source root may contain shared and host-specific app manifests:
-
-```
-<repo-root>/
-  <fqdn>/
-    apps/
-      host-only-app/
-        stevedore.yml
-  apps/
-    shared-app/
-      stevedore.yml
-```
-
-Stevedore loads `<repo-root>/<fqdn>/apps` (for this host) and `<repo-root>/apps`
-(shared). If both define the same app folder name, startup fails with a
-duplicate-app error.
-
-## Running as a service
-
-Install and enable a `systemd` service using the built-in installer command:
+Install:
 
 ```bash
 sudo stevedore-agent install-service
 ```
 
-This command writes `/etc/systemd/system/stevedore-agent.service`, runs
-`systemctl daemon-reload`, then runs `systemctl enable --now stevedore-agent.service`.
-
-To uninstall the service, use:
+Uninstall:
 
 ```bash
 sudo stevedore-agent uninstall-service
 ```
 
-This command runs `systemctl disable --now stevedore-agent.service`, removes
-`/etc/systemd/system/stevedore-agent.service` when present, then reloads systemd.
+The installer writes `/etc/systemd/system/stevedore-agent.service`, reloads
+systemd, then enables/starts the service.
 
-The service file is generated from a template in code at
-`cmd/stevedore/service_install.go` so it can be changed centrally.
-
-Generated unit content:
-
-```ini
-[Unit]
-Description=Stevedore agent
-After=network-online.target docker.service
-Wants=network-online.target
-StartLimitIntervalSec=900
-StartLimitBurst=5
-
-[Service]
-Environment=STEVEDORE_HOME=/etc/stevedore
-Environment=STEVEDORE_LOG_DIR=/var/log/stevedore
-# Environment=GIT_TOKEN=...   (prefer an EnvironmentFile with 0600 perms)
-ExecStart=/usr/local/bin/stevedore-agent run
-Restart=on-failure
-RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Private Docker Registry Support
-
-By default, `install-service` configures Docker credential environment variables
-from the current shell's `HOME`:
-
-```ini
-Environment=DOCKER_CONFIG=$HOME/.docker
-Environment=HOME=$HOME
-```
-
-If your Docker credentials live somewhere else (for example, a dedicated service
-user), override with `--docker-config` and `--docker-home`:
-
-```bash
-# Example override for a dedicated service user
-sudo stevedore-agent install-service \
-  --docker-config /home/stevedore/.docker \
-  --docker-home /home/stevedore
-```
-
-For detailed setup instructions and troubleshooting, see [`docs/docker-private-registry.md`](./docker-private-registry.md).
+For private image pulls, see [docs/docker-private-registry.md](docker-private-registry.md).
