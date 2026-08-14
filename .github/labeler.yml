@@ -1,0 +1,82 @@
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "README.md"
+          - "CONTRIBUTING.md"
+          - "CODE_OF_CONDUCT.md"
+          - "SECURITY.md"
+
+ci/cd:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "go.mod"
+          - "go.sum"
+
+cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "cmd/**"
+          - "main.go"
+
+config:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/config/**"
+          - "examples/config/**"
+
+doctor:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "cmd/stevedore/doctor.go"
+          - "cmd/stevedore/doctor_test.go"
+          - "internal/doctor/**"
+          - "docs/doctor.md"
+
+manifests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/manifest/**"
+          - "examples/apps/**"
+
+reconciler:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/reconciler/**"
+          - "cmd/stevedore/run.go"
+          - "cmd/stevedore/run_test.go"
+          - "docs/run.md"
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/docker/**"
+          - "docs/docker-private-registry.md"
+
+git:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/git/**"
+
+plugins:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/plugins/**"
+          - "pkg/plugin/**"
+          - "docs/apache-exposure.md"
+
+secrets:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/secrets/**"
+          - "examples/config/secrets.local.yml"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*_test.go"

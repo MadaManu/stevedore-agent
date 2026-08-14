@@ -1,0 +1,73 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
+no-changes-template: "- No user-facing changes in this release."
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS
+
+categories:
+  - title: "CLI"
+    labels:
+      - "cli"
+  - title: "Reconciliation Engine"
+    labels:
+      - "reconciler"
+  - title: "Manifest Processing"
+    labels:
+      - "manifests"
+  - title: "Configuration"
+    labels:
+      - "config"
+  - title: "Doctor & Diagnostics"
+    labels:
+      - "doctor"
+  - title: "Docker Runtime"
+    labels:
+      - "docker"
+  - title: "Git Source Sync"
+    labels:
+      - "git"
+  - title: "Plugins & Exposure"
+    labels:
+      - "plugins"
+  - title: "Secrets"
+    labels:
+      - "secrets"
+  - title: "Tests"
+    labels:
+      - "tests"
+  - title: "Dependencies"
+    labels:
+      - "dependencies"
+  - title: "CI/CD"
+    labels:
+      - "ci/cd"
+  - title: "Documentation"
+    labels:
+      - "documentation"
+exclude-labels:
+  - "skip-changelog"
+
+version-resolver:
+  major:
+    labels:
+      - "breaking-change"
+  minor:
+    labels:
+      - "feature"
+  patch:
+    labels:
+      - "fix"
+      - "bugfix"
+      - "dependencies"
+      - "documentation"
+      - "ci/cd"
+      - "tests"
+  default: patch

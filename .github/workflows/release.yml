@@ -1,0 +1,147 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: "Are you sure you want to publish the current release draft? Type: yes"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Confirm release
+        if: ${{ github.event.inputs.confirm_release != 'yes' }}
+        run: |
+          echo "Release not published. You must enter exactly: yes"
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Find release draft
+        id: draft
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100
+            });
+            const draft = releases.find((r) => r.draft === true);
+            if (!draft) {
+              core.setFailed("No draft release found. Ensure Release Drafter has created one.");
+              return;
+            }
+            if (!draft.tag_name) {
+              core.setFailed("Draft release has no tag_name.");
+              return;
+            }
+            core.info(`Using draft release ${draft.name || draft.tag_name} (${draft.id})`);
+            core.setOutput("release_id", String(draft.id));
+            core.setOutput("tag_name", draft.tag_name);
+            core.setOutput("target_commitish", draft.target_commitish || "main");
+
+      - name: Create and push release tag if missing
+        env:
+          TAG_NAME: ${{ steps.draft.outputs.tag_name }}
+          TARGET_COMMITISH: ${{ steps.draft.outputs.target_commitish }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists on origin."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git rev-parse --verify --quiet "${TARGET_COMMITISH}^{commit}" >/dev/null; then
+            target_sha="$(git rev-parse "${TARGET_COMMITISH}^{commit}")"
+          elif git rev-parse --verify --quiet "origin/${TARGET_COMMITISH}^{commit}" >/dev/null; then
+            target_sha="$(git rev-parse "origin/${TARGET_COMMITISH}^{commit}")"
+          else
+            echo "Unable to resolve target commitish: ${TARGET_COMMITISH}"
+            exit 1
+          fi
+
+          git tag -a "${TAG_NAME}" "${target_sha}" -m "Release ${TAG_NAME}"
+          git push origin "refs/tags/${TAG_NAME}"
+
+      - name: Build Linux binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          targets=(
+            "386"
+            "amd64"
+            "arm64"
+            "loong64"
+            "mips"
+            "mipsle"
+            "mips64"
+            "mips64le"
+            "ppc64"
+            "ppc64le"
+            "riscv64"
+            "s390x"
+            "armv6"
+            "armv7"
+          )
+
+          for target in "${targets[@]}"; do
+            case "${target}" in
+              armv6)
+                GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-armv6" .
+                ;;
+              armv7)
+                GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-armv7" .
+                ;;
+              *)
+                GOOS=linux GOARCH="${target}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-${target}" .
+                ;;
+            esac
+          done
+
+          (cd dist && sha256sum stevedore-agent-linux-* > checksums.txt)
+
+      - name: Upload binaries to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.draft.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "${TAG_NAME}" dist/stevedore-agent-linux-* dist/checksums.txt --clobber
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+            -f draft=false \
+            -f prerelease=false \
+            -f make_latest=true >/dev/null
