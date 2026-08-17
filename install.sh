@@ -7,14 +7,16 @@ INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 STEVEDORE_HOME="${STEVEDORE_HOME:-/etc/stevedore}"
 STEVEDORE_LOG_DIR="${STEVEDORE_LOG_DIR:-/var/log/stevedore}"
 VERSION="${VERSION:-latest}"
+FORCE_REINSTALL=0
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--version TAG] [--install-dir DIR] [--repo OWNER/REPO]
+Usage: install.sh [--version TAG] [--install-dir DIR] [--repo OWNER/REPO] [--upgrade]
 
 Examples:
   sudo ./install.sh
   sudo ./install.sh --version v0.1.0
+  sudo ./install.sh --upgrade
 EOF
 }
 
@@ -31,6 +33,10 @@ while [ $# -gt 0 ]; do
     --repo)
       REPO="${2:-}"
       shift 2
+      ;;
+    --upgrade)
+      FORCE_REINSTALL=1
+      shift
       ;;
     -h|--help)
       usage
@@ -76,6 +82,10 @@ if [ "$VERSION" = "latest" ]; then
   VERSION="$(resolve_latest_version)"
 fi
 
+if [ "$FORCE_REINSTALL" -eq 1 ]; then
+  VERSION="$(resolve_latest_version)"
+fi
+
 if [ -z "$VERSION" ]; then
   echo "failed to resolve release version" >&2
   exit 1
@@ -104,7 +114,7 @@ install_layout() {
 
 install_layout
 
-if [ "$CURRENT_VERSION" = "$VERSION" ] && [ -x "$VERSIONED_BIN" ]; then
+if [ "$FORCE_REINSTALL" -eq 0 ] && [ "$CURRENT_VERSION" = "$VERSION" ] && [ -x "$VERSIONED_BIN" ]; then
   echo "stevedore-agent ${VERSION} is already installed at ${TARGET_BIN}"
 else
   TMP_DIR="$(mktemp -d)"
@@ -132,5 +142,9 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 "$VERSIONED_BIN" install-service
-echo "installed stevedore-agent ${VERSION} to ${VERSIONED_BIN}"
+if [ "$FORCE_REINSTALL" -eq 1 ]; then
+  echo "upgraded stevedore-agent to ${VERSION} at ${VERSIONED_BIN}"
+else
+  echo "installed stevedore-agent ${VERSION} to ${VERSIONED_BIN}"
+fi
 echo "created symlinks: ${TARGET_BIN}, ${STEVEDORE_ALIAS} -> ${VERSIONED_BIN}"

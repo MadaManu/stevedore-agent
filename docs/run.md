@@ -126,6 +126,10 @@ folders:
 | `STEVEDORE_HOME` | `/etc/stevedore` | config, runtime state, and `git-source/` |
 | `STEVEDORE_LOG_DIR` | `/var/log/stevedore` | log files |
 
+`--upgrade` forces a reinstall of the latest release. Running the installer
+again without it is still idempotent and will refresh symlinks when the
+requested version changes.
+
 Example:
 
 ```bash
