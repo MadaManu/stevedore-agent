@@ -94,34 +94,12 @@ jobs:
           mkdir -p dist
 
           targets=(
-            "386"
             "amd64"
             "arm64"
-            "loong64"
-            "mips"
-            "mipsle"
-            "mips64"
-            "mips64le"
-            "ppc64"
-            "ppc64le"
-            "riscv64"
-            "s390x"
-            "armv6"
-            "armv7"
           )
 
           for target in "${targets[@]}"; do
-            case "${target}" in
-              armv6)
-                GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-armv6" .
-                ;;
-              armv7)
-                GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-armv7" .
-                ;;
-              *)
-                GOOS=linux GOARCH="${target}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-${target}" .
-                ;;
-            esac
+            GOOS=linux GOARCH="${target}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-${target}" .
           done
 
           (cd dist && sha256sum stevedore-agent-linux-* > checksums.txt)

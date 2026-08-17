@@ -16,6 +16,9 @@ Each cycle:
 
 Use `stevedore-agent doctor` before `run` to validate local setup.
 
+For a first-run walkthrough with the bundled demo apps, see
+[docs/getting-started.md](getting-started.md).
+
 ## Config file and precedence
 
 - Path: `${STEVEDORE_HOME}/config.yml`

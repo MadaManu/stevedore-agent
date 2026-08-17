@@ -1,5 +1,6 @@
 # Documentation index
 
+- [Getting started](getting-started.md)
 - [Run and configuration](run.md)
 - [Doctor diagnostics](doctor.md)
 - [Apache exposure plugin](apache-exposure.md)

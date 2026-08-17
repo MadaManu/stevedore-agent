@@ -31,32 +31,36 @@ This project is functional and actively evolving. Interfaces and behavior may ch
 
 ## Quick start
 
-1. Build:
+1. Download a Linux binary from the [Releases page](https://github.com/MadaManu/stevedore-agent/releases)
+   (`stevedore-agent-linux-amd64` or `stevedore-agent-linux-arm64`).
+
+2. Make it executable:
 
 ```bash
-go build -o stevedore-agent .
+chmod +x stevedore-agent-linux-amd64
 ```
 
-2. Prepare config:
+3. Set up the demo repo and config:
 
 ```bash
-sudo mkdir -p /etc/stevedore
+sudo mkdir -p /srv/stevedore/apps-repo/apps
 sudo cp examples/config/local.yml /etc/stevedore/config.yml
+sudo cp -R examples/apps/demo-api /srv/stevedore/apps-repo/apps/
+sudo cp -R examples/apps/demo-ui /srv/stevedore/apps-repo/apps/
+sudo cp examples/config/secrets.local.yml /etc/stevedore/secrets.local.yml
 ```
 
-3. Update `source.local.path` in `/etc/stevedore/config.yml` to your manifests repo.
+4. Point `/etc/stevedore/config.yml` at `/srv/stevedore/apps-repo` and `/etc/stevedore/secrets.local.yml`.
 
-4. Validate setup:
+5. Validate and run:
 
 ```bash
-./stevedore-agent doctor
+./stevedore-agent-linux-amd64 doctor
+./stevedore-agent-linux-amd64 run
 ```
 
-5. Run:
-
-```bash
-./stevedore-agent run
-```
+For a step-by-step first-run guide and the demo stack, see
+[docs/getting-started.md](docs/getting-started.md).
 
 ## CLI
 
@@ -102,7 +106,7 @@ See full details in [docs/run.md](docs/run.md).
 
 - Release notes are published on the GitHub Releases page:
   <https://github.com/MadaManu/stevedore-agent/releases>
-- Linux binaries are attached as downloadable assets on each release.
+- Linux binaries for `amd64` and `arm64` are attached as downloadable assets on each release.
 - A `checksums.txt` file is included with each release for integrity checks.
 
 ## Security

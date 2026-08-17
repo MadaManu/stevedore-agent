@@ -30,20 +30,8 @@ publishing.
 
 The release workflow builds and uploads:
 
-- `stevedore-agent-linux-386`
 - `stevedore-agent-linux-amd64`
 - `stevedore-agent-linux-arm64`
-- `stevedore-agent-linux-loong64`
-- `stevedore-agent-linux-mips`
-- `stevedore-agent-linux-mipsle`
-- `stevedore-agent-linux-mips64`
-- `stevedore-agent-linux-mips64le`
-- `stevedore-agent-linux-ppc64`
-- `stevedore-agent-linux-ppc64le`
-- `stevedore-agent-linux-riscv64`
-- `stevedore-agent-linux-s390x`
-- `stevedore-agent-linux-armv6`
-- `stevedore-agent-linux-armv7`
 - `checksums.txt`
 
 These are attached as assets on the published GitHub Release.
