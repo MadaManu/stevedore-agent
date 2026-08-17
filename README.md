@@ -17,6 +17,7 @@ It continuously syncs a source of truth (local folder or Git repository), discov
 - Apache exposure plugin for HTTP/HTTPS publishing and Let's Encrypt flow
 - Built-in `doctor` command for local diagnostics
 - Built-in `install-service` and `uninstall-service` for systemd
+- Built-in `version` command and release bootstrap installer
 
 ## Project status
 
@@ -31,16 +32,7 @@ This project is functional and actively evolving. Interfaces and behavior may ch
 
 ## Quick start
 
-1. Download a Linux binary from the [Releases page](https://github.com/MadaManu/stevedore-agent/releases)
-   (`stevedore-agent-linux-amd64` or `stevedore-agent-linux-arm64`).
-
-2. Make it executable:
-
-```bash
-chmod +x stevedore-agent-linux-amd64
-```
-
-3. Set up the demo repo and config:
+1. Set up the demo repo and config:
 
 ```bash
 sudo mkdir -p /srv/stevedore/apps-repo/apps
@@ -50,13 +42,25 @@ sudo cp -R examples/apps/demo-ui /srv/stevedore/apps-repo/apps/
 sudo cp examples/config/secrets.local.yml /etc/stevedore/secrets.local.yml
 ```
 
-4. Point `/etc/stevedore/config.yml` at `/srv/stevedore/apps-repo` and `/etc/stevedore/secrets.local.yml`.
+2. Point `/etc/stevedore/config.yml` at `/srv/stevedore/apps-repo` and `/etc/stevedore/secrets.local.yml`.
+
+3. Run the bootstrap installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash
+```
+
+4. Or install a specific release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash -s -- --version v0.1.0
+```
 
 5. Validate and run:
 
 ```bash
-./stevedore-agent-linux-amd64 doctor
-./stevedore-agent-linux-amd64 run
+stevedore-agent doctor
+stevedore-agent run
 ```
 
 For a step-by-step first-run guide and the demo stack, see
@@ -68,6 +72,7 @@ For a step-by-step first-run guide and the demo stack, see
 stevedore-agent
 ├── run
 ├── doctor
+├── version
 ├── install-service
 └── uninstall-service
 ```
@@ -107,6 +112,7 @@ See full details in [docs/run.md](docs/run.md).
 - Release notes are published on the GitHub Releases page:
   <https://github.com/MadaManu/stevedore-agent/releases>
 - Linux binaries for `amd64` and `arm64` are attached as downloadable assets on each release.
+- Assets follow the pattern `https://github.com/MadaManu/stevedore-agent/releases/download/<tag>/stevedore-agent-linux-<arch>`.
 - A `checksums.txt` file is included with each release for integrity checks.
 
 ## Security

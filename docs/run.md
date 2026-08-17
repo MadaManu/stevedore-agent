@@ -89,4 +89,10 @@ sudo stevedore-agent uninstall-service
 The installer writes `/etc/systemd/system/stevedore-agent.service`, reloads
 systemd, then enables/starts the service.
 
+## Versioning
+
+- Use `stevedore-agent version` to print the installed build version.
+- Release binaries are published as
+  `https://github.com/MadaManu/stevedore-agent/releases/download/<tag>/stevedore-agent-linux-<arch>`.
+
 For private image pulls, see [docs/docker-private-registry.md](docker-private-registry.md).

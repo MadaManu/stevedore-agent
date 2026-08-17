@@ -89,9 +89,12 @@ jobs:
           git push origin "refs/tags/${TAG_NAME}"
 
       - name: Build Linux binaries
+        env:
+          TAG_NAME: ${{ steps.draft.outputs.tag_name }}
         run: |
           set -euo pipefail
           mkdir -p dist
+          version="${TAG_NAME}"
 
           targets=(
             "amd64"
@@ -99,7 +102,7 @@ jobs:
           )
 
           for target in "${targets[@]}"; do
-            GOOS=linux GOARCH="${target}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/stevedore-agent-linux-${target}" .
+            GOOS=linux GOARCH="${target}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X stevedore-agent/internal/buildinfo.Version=${version} -X stevedore-agent/internal/buildinfo.Commit=${GITHUB_SHA} -X stevedore-agent/internal/buildinfo.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o "dist/stevedore-agent-linux-${target}" .
           done
 
           (cd dist && sha256sum stevedore-agent-linux-* > checksums.txt)

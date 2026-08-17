@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"stevedore-agent/internal/buildinfo"
 	"stevedore-agent/internal/config"
 	"stevedore-agent/internal/docker"
 	"stevedore-agent/internal/logging"
@@ -40,9 +41,11 @@ func newRootCommand() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	root.Version = buildinfo.EffectiveVersion()
 
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newDoctorCommand())
+	root.AddCommand(newVersionCommand())
 	root.AddCommand(newInstallServiceCommand())
 	root.AddCommand(newUninstallServiceCommand())
 
