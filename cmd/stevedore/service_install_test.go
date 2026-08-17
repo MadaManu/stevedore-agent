@@ -2,6 +2,7 @@ package stevedore
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,5 +225,59 @@ func TestRunInstallService_WithDockerConfig(t *testing.T) {
 	output := out.String()
 	if strings.Contains(output, "Docker private repository") {
 		t.Fatalf("did not expect Docker configuration guide in output, got: %q", output)
+	}
+}
+
+func TestRunInstallService_UsesInstallerEnvPaths(t *testing.T) {
+	oldServiceName := serviceName
+	oldSystemdDir := systemdDirPath
+	oldHome := stevedoreHomePath
+	oldLog := stevedoreLogDir
+	oldResolve := resolveExecutablePath
+	oldWrite := writeFileFn
+	oldRun := runCommandFn
+	defer func() {
+		serviceName = oldServiceName
+		systemdDirPath = oldSystemdDir
+		stevedoreHomePath = oldHome
+		stevedoreLogDir = oldLog
+		resolveExecutablePath = oldResolve
+		writeFileFn = oldWrite
+		runCommandFn = oldRun
+	}()
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", filepath.Join(tmp, "home"))
+	t.Setenv("STEVEDORE_HOME", filepath.Join(tmp, "stevedore-home"))
+	t.Setenv("STEVEDORE_LOG_DIR", filepath.Join(tmp, "stevedore-logs"))
+
+	serviceName = "stevedore-agent"
+	systemdDirPath = tmp
+	stevedoreHomePath = "/etc/stevedore"
+	stevedoreLogDir = "/var/log/stevedore"
+
+	resolveExecutablePath = func() (string, error) {
+		return "/usr/local/bin/stevedore-agent", nil
+	}
+	writeFileFn = os.WriteFile
+	runCommandFn = func(name string, args ...string) ([]byte, error) {
+		return []byte("ok"), nil
+	}
+
+	if err := runInstallService(io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	unitPath := filepath.Join(tmp, "stevedore-agent.service")
+	b, err := os.ReadFile(unitPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unitText := string(b)
+	if !strings.Contains(unitText, "Environment=STEVEDORE_HOME="+filepath.Join(tmp, "stevedore-home")) {
+		t.Fatalf("expected env STEVEDORE_HOME in unit file, got:\n%s", unitText)
+	}
+	if !strings.Contains(unitText, "Environment=STEVEDORE_LOG_DIR="+filepath.Join(tmp, "stevedore-logs")) {
+		t.Fatalf("expected env STEVEDORE_LOG_DIR in unit file, got:\n%s", unitText)
 	}
 }

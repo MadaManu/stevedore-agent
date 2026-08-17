@@ -89,4 +89,52 @@ sudo stevedore-agent uninstall-service
 The installer writes `/etc/systemd/system/stevedore-agent.service`, reloads
 systemd, then enables/starts the service.
 
+## Versioning
+
+- Use `stevedore-agent version` to print the installed build version.
+- Release binaries are published as
+  `https://github.com/MadaManu/stevedore-agent/releases/download/<tag>/stevedore-agent-linux-<arch>`.
+
+## Bootstrap installer
+
+The bootstrap script is `install.sh` in the repository root. It can be run
+locally or piped from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash
+```
+
+Accepted arguments:
+
+| Flag | Values | Default |
+|---|---|---|
+| `--version` | `latest` or a release tag like `v0.1.0` | `latest` |
+| `--install-dir` | Any writable directory | `/usr/local/bin` |
+| `--repo` | `OWNER/REPO` | `MadaManu/stevedore-agent` |
+| `-h`, `--help` | Prints usage | n/a |
+
+The script only supports Linux, detects the machine architecture, downloads the
+matching binary asset for the chosen version, checks `checksums.txt`, and then
+installs the binary before reapplying the systemd unit. It also creates
+`stevedore-agent` and `stevedore` symlinks.
+
+If set, the script uses these environment variables to create the runtime
+folders:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `STEVEDORE_HOME` | `/etc/stevedore` | config, runtime state, and `git-source/` |
+| `STEVEDORE_LOG_DIR` | `/var/log/stevedore` | log files |
+
+`--upgrade` forces a reinstall of the latest release. Running the installer
+again without it is still idempotent and will refresh symlinks when the
+requested version changes.
+
+Example:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | \
+  sudo STEVEDORE_HOME=/srv/stevedore STEVEDORE_LOG_DIR=/var/log/stevedore bash
+```
+
 For private image pulls, see [docs/docker-private-registry.md](docker-private-registry.md).

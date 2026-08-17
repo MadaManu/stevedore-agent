@@ -59,6 +59,8 @@ func newInstallServiceCommand() *cobra.Command {
 }
 
 func runInstallService(w io.Writer) error {
+	applyInstallerEnvPaths()
+
 	if strings.TrimSpace(serviceName) == "" {
 		return fmt.Errorf("service name is required")
 	}
@@ -106,6 +108,15 @@ func runInstallService(w io.Writer) error {
 	_, _ = fmt.Fprintf(w, "installed %s\n", unitFilePath)
 	_, _ = fmt.Fprintf(w, "enabled and started %s\n", serviceUnit)
 	return nil
+}
+
+func applyInstallerEnvPaths() {
+	if v := strings.TrimSpace(os.Getenv("STEVEDORE_HOME")); v != "" {
+		stevedoreHomePath = v
+	}
+	if v := strings.TrimSpace(os.Getenv("STEVEDORE_LOG_DIR")); v != "" {
+		stevedoreLogDir = v
+	}
 }
 
 func resolveDockerEnvPaths() (string, string) {

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	mangologger "github.com/bitstep-ie/mango-go/pkg/logger"
+	"stevedore-agent/internal/buildinfo"
 )
 
 var (
@@ -40,6 +41,7 @@ var logConfiguration = &mangologger.LogConfig{
 			Friendly: true,
 			FriendlyFormat: `"[\(.level)] \(.operation) | \(.message)"
 				+ (if (.attributes.app // "") != "" then " | app=\(.attributes.app)" else "" end)
+				+ (if (.attributes.version // "") != "" then " | version=\(.attributes.version)" else "" end)
 				+ (if (.attributes.status // "") != "" then " | status=\(.attributes.status)" else "" end)
 				+ (if (.attributes.drift // "") != "" then " | drift=\(.attributes.drift)" else "" end)
 				+ (if (.attributes.changes // "") != "" then " | changes=\(.attributes.changes)" else "" end)
@@ -48,6 +50,7 @@ var logConfiguration = &mangologger.LogConfig{
 			Verbose: false,
 			VerboseFormat: `"[\(.level)] \(.operation) | \(.message)"
 				+ (if (.attributes.app // "") != "" then " | app=\(.attributes.app)" else "" end)
+				+ (if (.attributes.version // "") != "" then " | version=\(.attributes.version)" else "" end)
 				+ (if (.attributes.status // "") != "" then " | status=\(.attributes.status)" else "" end)
 				+ (if (.attributes.drift // "") != "" then " | drift=\(.attributes.drift)" else "" end)
 				+ (if (.attributes.changes // "") != "" then " | changes=\(.attributes.changes)" else "" end)
@@ -79,7 +82,7 @@ func ConfigureDefault(logDir string) error {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("create log dir: %w", err)
 	}
-	slog.SetDefault(slog.New(mangologger.NewMangoLogger(GetConfig(logDir))))
+	slog.SetDefault(slog.New(mangologger.NewMangoLogger(GetConfig(logDir))).With("version", buildinfo.EffectiveVersion()))
 	return nil
 }
 
