@@ -115,6 +115,44 @@ See full details in [docs/run.md](docs/run.md).
 - Assets follow the pattern `https://github.com/MadaManu/stevedore-agent/releases/download/<tag>/stevedore-agent-linux-<arch>`.
 - A `checksums.txt` file is included with each release for integrity checks.
 
+## Bootstrap installer
+
+The installer script can be called directly or piped from the repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash
+```
+
+### Accepted arguments
+
+| Flag | Values | Default | Purpose |
+|---|---|---|---|
+| `--version` | `latest` or a release tag like `v0.1.0` | `latest` | Chooses which release to install |
+| `--install-dir` | Any writable directory, such as `/usr/local/bin` | `/usr/local/bin` | Where the `stevedore-agent` binary is placed |
+| `--repo` | `OWNER/REPO`, for example `MadaManu/stevedore-agent` | `MadaManu/stevedore-agent` | Which GitHub repository to download releases from |
+| `-h`, `--help` | n/a | n/a | Prints script usage |
+
+Examples:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash -s -- --install-dir /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo STEVEDORE_HOME=/srv/stevedore STEVEDORE_LOG_DIR=/var/log/stevedore bash
+```
+
+The script expects Linux, detects `amd64`/`arm64`, compares the installed
+binary's `version` output to the requested release, downloads the matching
+asset, verifies `checksums.txt`, installs the versioned binary, and creates
+`stevedore-agent` plus `stevedore` symlinks.
+
+The installer also respects these environment variables when creating runtime
+folders:
+
+| Env var | Default | Used for |
+|---|---|---|
+| `STEVEDORE_HOME` | `/etc/stevedore` | config, runtime state, and `git-source/` |
+| `STEVEDORE_LOG_DIR` | `/var/log/stevedore` | log files |
+
 ## Security
 
 Please report vulnerabilities using the process in [SECURITY.md](SECURITY.md).

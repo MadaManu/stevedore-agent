@@ -95,4 +95,42 @@ systemd, then enables/starts the service.
 - Release binaries are published as
   `https://github.com/MadaManu/stevedore-agent/releases/download/<tag>/stevedore-agent-linux-<arch>`.
 
+## Bootstrap installer
+
+The bootstrap script is `install.sh` in the repository root. It can be run
+locally or piped from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | sudo bash
+```
+
+Accepted arguments:
+
+| Flag | Values | Default |
+|---|---|---|
+| `--version` | `latest` or a release tag like `v0.1.0` | `latest` |
+| `--install-dir` | Any writable directory | `/usr/local/bin` |
+| `--repo` | `OWNER/REPO` | `MadaManu/stevedore-agent` |
+| `-h`, `--help` | Prints usage | n/a |
+
+The script only supports Linux, detects the machine architecture, downloads the
+matching binary asset for the chosen version, checks `checksums.txt`, and then
+installs the binary before reapplying the systemd unit. It also creates
+`stevedore-agent` and `stevedore` symlinks.
+
+If set, the script uses these environment variables to create the runtime
+folders:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `STEVEDORE_HOME` | `/etc/stevedore` | config, runtime state, and `git-source/` |
+| `STEVEDORE_LOG_DIR` | `/var/log/stevedore` | log files |
+
+Example:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MadaManu/stevedore-agent/main/install.sh | \
+  sudo STEVEDORE_HOME=/srv/stevedore STEVEDORE_LOG_DIR=/var/log/stevedore bash
+```
+
 For private image pulls, see [docs/docker-private-registry.md](docker-private-registry.md).

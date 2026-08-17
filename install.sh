@@ -4,6 +4,8 @@ set -euo pipefail
 REPO="${REPO:-MadaManu/stevedore-agent}"
 SERVICE_NAME="${SERVICE_NAME:-stevedore-agent}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+STEVEDORE_HOME="${STEVEDORE_HOME:-/etc/stevedore}"
+STEVEDORE_LOG_DIR="${STEVEDORE_LOG_DIR:-/var/log/stevedore}"
 VERSION="${VERSION:-latest}"
 
 usage() {
@@ -80,12 +82,29 @@ if [ -z "$VERSION" ]; then
 fi
 
 TARGET_BIN="${INSTALL_DIR}/${SERVICE_NAME}"
+STEVEDORE_ALIAS="${INSTALL_DIR}/stevedore"
+VERSIONED_BIN="${INSTALL_DIR}/${SERVICE_NAME}-${VERSION}"
 CURRENT_VERSION=""
-if [ -x "$TARGET_BIN" ]; then
+if [ -x "$STEVEDORE_ALIAS" ]; then
+  CURRENT_VERSION="$("$STEVEDORE_ALIAS" version 2>/dev/null | awk 'NR == 1 { print $2 }')"
+elif [ -x "$TARGET_BIN" ]; then
   CURRENT_VERSION="$("$TARGET_BIN" version 2>/dev/null | awk 'NR == 1 { print $2 }')"
 fi
 
-if [ "$CURRENT_VERSION" = "$VERSION" ]; then
+install_layout() {
+  install -d -m 0755 "$STEVEDORE_HOME"
+  install -d -m 0755 "${STEVEDORE_HOME}/git-source"
+  install -d -m 0755 "$STEVEDORE_LOG_DIR"
+
+  echo "using STEVEDORE_HOME=${STEVEDORE_HOME}"
+  echo "  expected: config.yml, optional secrets file, and git-source/ for Git checkouts"
+  echo "using STEVEDORE_LOG_DIR=${STEVEDORE_LOG_DIR}"
+  echo "  expected: stevedore.log and rotated log files"
+}
+
+install_layout
+
+if [ "$CURRENT_VERSION" = "$VERSION" ] && [ -x "$VERSIONED_BIN" ]; then
   echo "stevedore-agent ${VERSION} is already installed at ${TARGET_BIN}"
 else
   TMP_DIR="$(mktemp -d)"
@@ -102,12 +121,16 @@ else
 
   (cd "$TMP_DIR" && sha256sum -c checksums.txt --ignore-missing --quiet)
   install -d -m 0755 "$INSTALL_DIR"
-  install -m 0755 "${TMP_DIR}/${ASSET_NAME}" "$TARGET_BIN"
+  install -m 0755 "${TMP_DIR}/${ASSET_NAME}" "$VERSIONED_BIN"
 fi
+
+ln -sfn "$VERSIONED_BIN" "$TARGET_BIN"
+ln -sfn "$VERSIONED_BIN" "$STEVEDORE_ALIAS"
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
 fi
 
-"$TARGET_BIN" install-service
-echo "installed stevedore-agent ${VERSION} to ${TARGET_BIN}"
+"$VERSIONED_BIN" install-service
+echo "installed stevedore-agent ${VERSION} to ${VERSIONED_BIN}"
+echo "created symlinks: ${TARGET_BIN}, ${STEVEDORE_ALIAS} -> ${VERSIONED_BIN}"
