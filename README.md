@@ -1,5 +1,7 @@
 # stevedore-agent
 
+![stevedore-agent](logo.png)
+
 [![CI](https://github.com/MadaManu/stevedore-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MadaManu/stevedore-agent/actions/workflows/ci.yml)
 
 `stevedore-agent` is a host-level reconciliation agent for running containerized apps from declarative manifests.
