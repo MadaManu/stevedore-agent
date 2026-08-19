@@ -7,14 +7,14 @@ import (
 	"sort"
 
 	"stevedore-agent/internal/docker"
+	"stevedore-agent/internal/exposure"
 	"stevedore-agent/internal/logging"
 	"stevedore-agent/internal/manifest"
-	"stevedore-agent/internal/plugins"
 )
 
 type Reconciler struct {
-	Runtime docker.Runtime
-	Plugins *plugins.Manager
+	Runtime  docker.Runtime
+	Exposure *exposure.Manager
 }
 
 // ReconcileResult contains the result of a reconciliation including any drift detected.
@@ -130,7 +130,7 @@ func (r *Reconciler) Reconcile(app manifest.Application) (*ReconcileResult, erro
 		slog.InfoContext(logging.BusinessContext(ctx, "reconcile"), "reconcile action", slog.String("app", app.Metadata.Name), slog.String("action", "no-op: already converged"))
 	}
 
-	if err := r.Plugins.Apply(app); err != nil {
+	if err := r.Exposure.Apply(app); err != nil {
 		return result, err
 	}
 
@@ -155,7 +155,7 @@ func (r *Reconciler) Delete(app manifest.Application) error {
 		}
 	}
 
-	if err := r.Plugins.Remove(app); err != nil {
+	if err := r.Exposure.Remove(app); err != nil {
 		return err
 	}
 

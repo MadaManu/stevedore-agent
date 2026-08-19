@@ -63,11 +63,10 @@ git:
       - any-glob-to-any-file:
           - "internal/git/**"
 
-plugins:
+exposure:
   - changed-files:
       - any-glob-to-any-file:
-          - "internal/plugins/**"
-          - "pkg/plugin/**"
+          - "internal/exposure/**"
           - "docs/apache-exposure.md"
 
 secrets:

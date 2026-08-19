@@ -31,7 +31,7 @@ const (
 	DebugEnvVar = "STEVEDORE_DEBUG"
 	// IntervalEnvVar overrides the poll interval (parsed as a Go duration).
 	IntervalEnvVar = "STEVEDORE_POLL_INTERVAL"
-	// ApacheSitesDirEnvVar overrides the apache exposure plugin sites-enabled directory.
+	// ApacheSitesDirEnvVar overrides the apache exposure provider sites-enabled directory.
 	// Setting this activates the apache provider even if exposure.apache is not present
 	// in config.yml.
 	ApacheSitesDirEnvVar = "STEVEDORE_APACHE_SITES_DIR"
@@ -129,7 +129,7 @@ type ExposureConfig struct {
 	Apache *ApacheExposureConfig `yaml:"apache"`
 }
 
-// ApacheExposureConfig configures the Apache virtual-host exposure plugin.
+// ApacheExposureConfig configures the Apache virtual-host exposure provider.
 // Required only when at least one app sets expose.provider to "apache".
 type ApacheExposureConfig struct {
 	SitesDir string `yaml:"sitesDir"`

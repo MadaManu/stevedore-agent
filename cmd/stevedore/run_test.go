@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"stevedore-agent/internal/docker"
+	"stevedore-agent/internal/exposure"
 	"stevedore-agent/internal/manifest"
-	"stevedore-agent/internal/plugins"
 	"stevedore-agent/internal/reconciler"
 )
 
@@ -449,7 +449,7 @@ func TestReconcileApps_ContinuesAfterError(t *testing.T) {
 		{Metadata: manifest.Metadata{Name: "ok-app"}, Image: manifest.ImageConfig{Repository: "nginx", Tag: "ok"}},
 	}
 
-	r := &reconciler.Reconciler{Runtime: rt, Plugins: plugins.NewManager()}
+	r := &reconciler.Reconciler{Runtime: rt, Exposure: exposure.NewManager()}
 	errs := reconcileApps(context.Background(), r, apps)
 
 	if len(errs) != 1 {
@@ -485,7 +485,7 @@ func TestReconcileApps_NoErrors(t *testing.T) {
 		{Metadata: manifest.Metadata{Name: "app-b"}, Image: manifest.ImageConfig{Repository: "nginx", Tag: "1.27"}},
 	}
 
-	r := &reconciler.Reconciler{Runtime: rt, Plugins: plugins.NewManager()}
+	r := &reconciler.Reconciler{Runtime: rt, Exposure: exposure.NewManager()}
 	errs := reconcileApps(context.Background(), r, apps)
 
 	if len(errs) != 0 {

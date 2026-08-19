@@ -11,7 +11,7 @@ Each cycle:
 1. Sync source of truth (`source.local` or `source.git`)
 2. Discover manifests (`<fqdn>/apps/*/stevedore.yml` + `apps/*/stevedore.yml`)
 3. Resolve placeholders and compute desired/runtime hashes
-4. Reconcile drift by creating/updating containers and plugin resources
+4. Reconcile drift by creating/updating containers and exposure resources
 5. Sleep until next `poll.interval`
 
 Use `stevedore-agent doctor` before `run` to validate local setup.

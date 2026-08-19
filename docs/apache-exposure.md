@@ -1,6 +1,6 @@
 # Apache exposure provider
 
-The `apache` exposure plugin makes stevedore-agent manage Apache VirtualHost
+The bundled `apache` exposure provider makes stevedore-agent manage Apache VirtualHost
 configuration files for your applications.  On each reconcile cycle it writes a
 `.conf` file to the configured `sites-enabled` directory, handles Let's Encrypt
 certificate issuance/renewal when SSL is requested, and reloads Apache.
@@ -46,7 +46,7 @@ from `config.yml`).
 
 ## stevedore.yml — expose block
 
-All `expose.config` fields understood by the Apache plugin:
+All `expose.config` fields understood by the Apache provider:
 
 | Field     | Type   | Required              | Default                  | Description |
 |-----------|--------|-----------------------|--------------------------|-------------|
@@ -244,6 +244,5 @@ systemctl enable --now certbot.timer
 - Plain HTTP: [`examples/apps/demo-api/stevedore.yml`](../examples/apps/demo-api/stevedore.yml)
 - HTTPS / SSL: [`examples/apps/demo-api-ssl/stevedore.yml`](../examples/apps/demo-api-ssl/stevedore.yml)
 - VHost templates (embedded in binary):
-  - `internal/plugins/apache/templates/vhost-http.conf.tmpl`
-  - `internal/plugins/apache/templates/vhost-ssl.conf.tmpl`
-
+  - `internal/exposure/apache/templates/vhost-http.conf.tmpl`
+  - `internal/exposure/apache/templates/vhost-ssl.conf.tmpl`
