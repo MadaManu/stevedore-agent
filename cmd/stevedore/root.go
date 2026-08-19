@@ -10,11 +10,10 @@ import (
 	"stevedore-agent/internal/buildinfo"
 	"stevedore-agent/internal/config"
 	"stevedore-agent/internal/docker"
+	"stevedore-agent/internal/exposure"
+	"stevedore-agent/internal/exposure/apache"
 	"stevedore-agent/internal/logging"
-	"stevedore-agent/internal/plugins"
-	"stevedore-agent/internal/plugins/apache"
 	"stevedore-agent/internal/reconciler"
-	"stevedore-agent/pkg/plugin"
 
 	"github.com/spf13/cobra"
 )
@@ -53,12 +52,12 @@ func newRootCommand() *cobra.Command {
 }
 
 func buildReconciler(cfg *config.Config) *reconciler.Reconciler {
-	var exposurePlugins []plugin.ExposurePlugin
+	var providers []exposure.Provider
 	if cfg.Exposure.Apache != nil && cfg.Exposure.Apache.SitesDir != "" {
-		exposurePlugins = append(exposurePlugins, apache.New(cfg.Exposure.Apache.SitesDir))
+		providers = append(providers, apache.New(cfg.Exposure.Apache.SitesDir))
 	}
-	pm := plugins.NewManager(exposurePlugins...)
-	return &reconciler.Reconciler{Runtime: docker.NewDockerRuntime(), Plugins: pm}
+	pm := exposure.NewManager(providers...)
+	return &reconciler.Reconciler{Runtime: docker.NewDockerRuntime(), Exposure: pm}
 }
 
 func fatal(err error) {

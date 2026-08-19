@@ -1,20 +1,19 @@
-package plugins
+package exposure
 
 import (
 	"fmt"
 
 	"stevedore-agent/internal/manifest"
-	"stevedore-agent/pkg/plugin"
 )
 
 type Manager struct {
-	plugins map[string]plugin.ExposurePlugin
+	providers map[string]Provider
 }
 
-func NewManager(items ...plugin.ExposurePlugin) *Manager {
-	m := &Manager{plugins: map[string]plugin.ExposurePlugin{}}
+func NewManager(items ...Provider) *Manager {
+	m := &Manager{providers: map[string]Provider{}}
 	for _, p := range items {
-		m.plugins[p.Name()] = p
+		m.providers[p.Name()] = p
 	}
 	return m
 }
@@ -23,42 +22,42 @@ func (m *Manager) Apply(app manifest.Application) error {
 	if !app.Expose.Enabled {
 		return nil
 	}
-	p, ok := m.plugins[app.Expose.Provider]
+	p, ok := m.providers[app.Expose.Provider]
 	if !ok {
 		return fmt.Errorf("exposure provider %q is not registered", app.Expose.Provider)
 	}
-	pa := toPluginApp(app)
-	if err := p.Validate(pa.ExposeConfig); err != nil {
+	exposureApp := toExposureApp(app)
+	if err := p.Validate(exposureApp.Config); err != nil {
 		return err
 	}
-	return p.Apply(pa)
+	return p.Apply(exposureApp)
 }
 
 func (m *Manager) Remove(app manifest.Application) error {
 	if !app.Expose.Enabled {
 		return nil
 	}
-	p, ok := m.plugins[app.Expose.Provider]
+	p, ok := m.providers[app.Expose.Provider]
 	if !ok {
 		return fmt.Errorf("exposure provider %q is not registered", app.Expose.Provider)
 	}
-	return p.Remove(toPluginApp(app))
+	return p.Remove(toExposureApp(app))
 }
 
-// toPluginApp converts an internal Application to the public plugin.App type.
-func toPluginApp(app manifest.Application) plugin.App {
-	ports := make([]plugin.Port, 0, len(app.Ports))
+// toExposureApp converts an internal Application to the internal exposure App.
+func toExposureApp(app manifest.Application) App {
+	ports := make([]Port, 0, len(app.Ports))
 	for _, p := range app.Ports {
-		ports = append(ports, plugin.Port{
+		ports = append(ports, Port{
 			Name:          p.Name,
 			HostPort:      p.HostPort,
 			ContainerPort: p.ContainerPort,
 		})
 	}
-	return plugin.App{
+	return App{
 		Name:          app.Metadata.Name,
 		ContainerName: app.ContainerName(),
 		Ports:         ports,
-		ExposeConfig:  app.Expose.Config,
+		Config:        app.Expose.Config,
 	}
 }

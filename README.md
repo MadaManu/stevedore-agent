@@ -14,7 +14,7 @@ It continuously syncs a source of truth (local folder or Git repository), discov
 - Declarative container state (image, ports, env, volumes, networks, restart policy)
 - Runtime drift detection and corrective reconciliation
 - Secret interpolation for manifests (`${local:path/to/secret}`)
-- Apache exposure plugin for HTTP/HTTPS publishing and Let's Encrypt flow
+- Bundled Apache exposure provider for HTTP/HTTPS publishing and Let's Encrypt flow
 - Built-in `doctor` command for local diagnostics
 - Built-in `install-service` and `uninstall-service` for systemd
 - Built-in `version` command and release bootstrap installer
@@ -103,7 +103,7 @@ See full details in [docs/run.md](docs/run.md).
 
 - Running and configuration: [docs/run.md](docs/run.md)
 - Diagnostics: [docs/doctor.md](docs/doctor.md)
-- Apache exposure: [docs/apache-exposure.md](docs/apache-exposure.md)
+- Apache exposure provider: [docs/apache-exposure.md](docs/apache-exposure.md)
 - Private registries with systemd service: [docs/docker-private-registry.md](docs/docker-private-registry.md)
 - Maintainer release process: [docs/development-release.md](docs/development-release.md)
 

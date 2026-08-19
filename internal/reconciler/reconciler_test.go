@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"stevedore-agent/internal/docker"
+	"stevedore-agent/internal/exposure"
 	"stevedore-agent/internal/manifest"
-	"stevedore-agent/internal/plugins"
 )
 
 type fakeRuntime struct {
@@ -89,7 +89,7 @@ func testApp() manifest.Application {
 
 func TestReconcileCreatesContainer(t *testing.T) {
 	fr := &fakeRuntime{}
-	r := &Reconciler{Runtime: fr, Plugins: plugins.NewManager()}
+	r := &Reconciler{Runtime: fr, Exposure: exposure.NewManager()}
 
 	app := testApp()
 
@@ -124,7 +124,7 @@ func TestReconcileStartsExistingStoppedContainer(t *testing.T) {
 		network:           true,
 		containerNetworks: app.NetworkNames(),
 	}
-	r := &Reconciler{Runtime: fr, Plugins: plugins.NewManager()}
+	r := &Reconciler{Runtime: fr, Exposure: exposure.NewManager()}
 
 	_, err = r.Reconcile(app)
 	if err != nil {

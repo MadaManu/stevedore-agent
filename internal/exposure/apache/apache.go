@@ -1,6 +1,6 @@
-// Package apache implements the stevedore Apache exposure plugin.
+// Package apache implements the stevedore Apache exposure provider.
 //
-// The plugin writes Apache VirtualHost configuration files to a
+// The provider writes Apache VirtualHost configuration files to a
 // sites-enabled directory and reloads Apache.  When SSL is requested it uses
 // certbot (Let's Encrypt) to obtain/renew the TLS certificate before writing
 // the HTTPS vhost.
@@ -36,7 +36,7 @@ import (
 	"strings"
 	"text/template"
 
-	"stevedore-agent/pkg/plugin"
+	"stevedore-agent/internal/exposure"
 )
 
 //go:embed templates/*.tmpl
@@ -48,26 +48,26 @@ const (
 	certBasePath    = "/etc/letsencrypt/live"
 )
 
-// Plugin is the Apache exposure plugin.
-type Plugin struct {
+// Provider is the Apache exposure provider.
+type Provider struct {
 	SitesDir      string
 	ReloadCommand string
 }
 
-// New creates a Plugin.  sitesDir defaults to /etc/apache2/sites-enabled when
+// New creates a Provider. sitesDir defaults to /etc/apache2/sites-enabled when
 // empty.
-func New(sitesDir string) *Plugin {
+func New(sitesDir string) *Provider {
 	if sitesDir == "" {
 		sitesDir = defaultSitesDir
 	}
-	return &Plugin{SitesDir: sitesDir, ReloadCommand: "apachectl graceful"}
+	return &Provider{SitesDir: sitesDir, ReloadCommand: "apachectl graceful"}
 }
 
 // Name returns "apache" — the value used in expose.provider.
-func (p *Plugin) Name() string { return "apache" }
+func (p *Provider) Name() string { return "apache" }
 
 // Validate checks that all required expose.config fields are present.
-func (p *Plugin) Validate(config map[string]interface{}) error {
+func (p *Provider) Validate(config map[string]interface{}) error {
 	domain, _ := config["domain"].(string)
 	if strings.TrimSpace(domain) == "" {
 		return fmt.Errorf("apache expose config requires a non-empty 'domain'")
@@ -102,15 +102,15 @@ type vhostData struct {
 //
 // When ssl is false only a plain HTTP vhost is written and Apache is reloaded
 // once.
-func (p *Plugin) Apply(app plugin.App) error {
+func (p *Provider) Apply(app exposure.App) error {
 	if err := os.MkdirAll(p.SitesDir, 0o755); err != nil {
 		return fmt.Errorf("apache: create sites dir %s: %w", p.SitesDir, err)
 	}
 
-	domain, _ := app.ExposeConfig["domain"].(string)
-	ssl, _ := app.ExposeConfig["ssl"].(bool)
-	email, _ := app.ExposeConfig["email"].(string)
-	webroot, _ := app.ExposeConfig["webroot"].(string)
+	domain, _ := app.Config["domain"].(string)
+	ssl, _ := app.Config["ssl"].(bool)
+	email, _ := app.Config["email"].(string)
+	webroot, _ := app.Config["webroot"].(string)
 	if webroot == "" {
 		webroot = defaultWebroot
 	}
@@ -156,14 +156,14 @@ func (p *Plugin) Apply(app plugin.App) error {
 }
 
 // Remove deletes the vhost config file for the app and reloads Apache.
-func (p *Plugin) Remove(app plugin.App) error {
+func (p *Provider) Remove(app exposure.App) error {
 	cfgPath := filepath.Join(p.SitesDir, app.Name+".conf")
 	_ = os.Remove(cfgPath)
 	return p.reloadApacheIfAvailable()
 }
 
 // writeVHost renders the named template and writes it to sites-enabled.
-func (p *Plugin) writeVHost(appName, tmplName string, data vhostData) error {
+func (p *Provider) writeVHost(appName, tmplName string, data vhostData) error {
 	tmpl, err := template.ParseFS(templateFS, "templates/"+tmplName)
 	if err != nil {
 		return fmt.Errorf("apache: parse template %s: %w", tmplName, err)
@@ -181,7 +181,7 @@ func (p *Plugin) writeVHost(appName, tmplName string, data vhostData) error {
 
 // ensureCertificate obtains a new certificate or attempts renewal if one
 // already exists.
-func (p *Plugin) ensureCertificate(domain, email, webroot string) error {
+func (p *Provider) ensureCertificate(domain, email, webroot string) error {
 	certFile := filepath.Join(certBasePath, domain, "fullchain.pem")
 	if _, err := os.Stat(certFile); err == nil {
 		// Certificate already exists — attempt a quiet renewal.
@@ -211,7 +211,7 @@ func (p *Plugin) ensureCertificate(domain, email, webroot string) error {
 
 // runCertbot executes certbot with the supplied arguments and returns a
 // descriptive error (including certbot's combined output) on failure.
-func (p *Plugin) runCertbot(args ...string) error {
+func (p *Provider) runCertbot(args ...string) error {
 	cmd := exec.Command("certbot", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("certbot %s: %w: %s", args[0], err, strings.TrimSpace(string(out)))
@@ -221,7 +221,7 @@ func (p *Plugin) runCertbot(args ...string) error {
 
 // reloadApache unconditionally reloads Apache.  Returns an error if Apache is
 // unavailable or the reload fails.
-func (p *Plugin) reloadApache() error {
+func (p *Provider) reloadApache() error {
 	parts := strings.Fields(p.ReloadCommand)
 	if len(parts) == 0 {
 		return nil
@@ -236,7 +236,7 @@ func (p *Plugin) reloadApache() error {
 // reloadApacheIfAvailable reloads Apache only when the reload binary is on
 // $PATH.  Used during Remove so that a missing Apache installation does not
 // cause an error.
-func (p *Plugin) reloadApacheIfAvailable() error {
+func (p *Provider) reloadApacheIfAvailable() error {
 	parts := strings.Fields(p.ReloadCommand)
 	if len(parts) == 0 {
 		return nil
@@ -247,12 +247,12 @@ func (p *Plugin) reloadApacheIfAvailable() error {
 	return p.reloadApache()
 }
 
-// resolveBackendPort returns the host port the plugin should proxy traffic to.
+// resolveBackendPort returns the host port the provider should proxy traffic to.
 // It honours the optional expose.config.port override, otherwise uses the
 // first port declared in the app manifest.
-func resolveBackendPort(app plugin.App) (int, error) {
+func resolveBackendPort(app exposure.App) (int, error) {
 	// Honour explicit override in expose.config.
-	if override, ok := app.ExposeConfig["port"]; ok {
+	if override, ok := app.Config["port"]; ok {
 		switch v := override.(type) {
 		case int:
 			if v > 0 {

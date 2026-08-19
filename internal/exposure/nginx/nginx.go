@@ -1,25 +1,6 @@
-// Package example demonstrates how to write an external stevedore exposure plugin.
-//
-// To use this pattern:
-//
-//  1. Create a new Go module (separate repository), e.g. github.com/you/stevedore-nginx-plugin
-//
-//  2. Add stevedore-agent as a dependency:
-//
-//     go get stevedore-agent@latest
-//
-//  3. Implement plugin.ExposurePlugin (see NginxPlugin below).
-//
-//  4. Fork stevedore-agent (or maintain a thin wrapper main.go), and register
-//     your plugin in buildReconciler:
-//
-//     pm := plugins.NewManager(
-//     apache.New(...),
-//     nginxplugin.New(...),  // <- your plugin
-//     )
-//
-//  5. Rebuild and deploy your custom stevedore binary.
-package example
+// Package nginx is an example in-tree exposure provider implementation.
+// It is intentionally not wired into the default build.
+package nginx
 
 import (
 	"fmt"
@@ -29,42 +10,41 @@ import (
 	"strings"
 	"text/template"
 
-	"stevedore-agent/pkg/plugin"
+	"stevedore-agent/internal/exposure"
 )
 
-// NginxPlugin is an example external plugin that configures Nginx.
-// It satisfies plugin.ExposurePlugin.
-type NginxPlugin struct {
+// Provider is an example Nginx exposure provider.
+type Provider struct {
 	SitesDir      string
 	ReloadCommand string
 }
 
-func New(sitesDir string) *NginxPlugin {
+func New(sitesDir string) *Provider {
 	if sitesDir == "" {
 		sitesDir = "/etc/nginx/sites-enabled"
 	}
-	return &NginxPlugin{SitesDir: sitesDir, ReloadCommand: "nginx -s reload"}
+	return &Provider{SitesDir: sitesDir, ReloadCommand: "nginx -s reload"}
 }
 
 // Name returns "nginx" — this is what manifests must set in expose.provider.
-func (p *NginxPlugin) Name() string { return "nginx" }
+func (p *Provider) Name() string { return "nginx" }
 
 // Validate checks that required config fields are present.
-func (p *NginxPlugin) Validate(config map[string]interface{}) error {
+func (p *Provider) Validate(config map[string]interface{}) error {
 	domain, _ := config["domain"].(string)
 	if strings.TrimSpace(domain) == "" {
-		return fmt.Errorf("nginx plugin: expose.config.domain is required")
+		return fmt.Errorf("nginx exposure config: expose.config.domain is required")
 	}
 	return nil
 }
 
 // Apply writes an Nginx server block and reloads Nginx.
-func (p *NginxPlugin) Apply(app plugin.App) error {
+func (p *Provider) Apply(app exposure.App) error {
 	if err := os.MkdirAll(p.SitesDir, 0o755); err != nil {
 		return err
 	}
 
-	domain, _ := app.ExposeConfig["domain"].(string)
+	domain, _ := app.Config["domain"].(string)
 	port := 80
 	if len(app.Ports) > 0 {
 		port = app.Ports[0].ContainerPort
@@ -95,13 +75,13 @@ func (p *NginxPlugin) Apply(app plugin.App) error {
 }
 
 // Remove deletes the Nginx config file and reloads Nginx.
-func (p *NginxPlugin) Remove(app plugin.App) error {
+func (p *Provider) Remove(app exposure.App) error {
 	cfgPath := filepath.Join(p.SitesDir, app.Name+".conf")
 	_ = os.Remove(cfgPath)
 	return p.reload()
 }
 
-func (p *NginxPlugin) reload() error {
+func (p *Provider) reload() error {
 	parts := strings.Split(p.ReloadCommand, " ")
 	if _, err := exec.LookPath(parts[0]); err != nil {
 		return nil // nginx not installed on this machine, skip

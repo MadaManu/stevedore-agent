@@ -34,9 +34,9 @@ categories:
   - title: "Git Source Sync"
     labels:
       - "git"
-  - title: "Plugins & Exposure"
+  - title: "Exposure"
     labels:
-      - "plugins"
+      - "exposure"
   - title: "Secrets"
     labels:
       - "secrets"
