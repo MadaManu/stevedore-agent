@@ -90,16 +90,24 @@ See full details in [docs/run.md](docs/run.md).
 
 ## Manifest repository layout
 
+Stevedore supports both shared apps and host-specific apps under a folder named
+after the machine's fqdn.
+
 ```text
 <repo-root>/
-  <fqdn>/
-    apps/
-      host-only-app/
-        stevedore.yml
   apps/
     shared-app/
       stevedore.yml
+  example.com/
+    apps/
+      host-only-app/
+        stevedore.yml
 ```
+
+For a host whose fqdn is `example.com`, Stevedore discovers:
+
+- `apps/shared-app/stevedore.yml`
+- `example.com/apps/host-only-app/stevedore.yml`
 
 ## Documentation
 

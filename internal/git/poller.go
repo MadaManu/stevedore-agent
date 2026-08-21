@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	urlpkg "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,10 +120,13 @@ func injectHTTPSCredentials(url, user, secret string) (string, error) {
 	if !strings.HasPrefix(url, prefix) {
 		return "", fmt.Errorf("token/basic auth requires an https:// url, got %q", url)
 	}
-	rest := strings.TrimPrefix(url, prefix)
-	// Strip any existing credentials in the URL.
-	if at := strings.Index(rest, "@"); at >= 0 {
-		rest = rest[at+1:]
+	parsed, err := urlpkg.Parse(url)
+	if err != nil {
+		return "", fmt.Errorf("parse git url %q: %w", url, err)
 	}
-	return fmt.Sprintf("%s%s:%s@%s", prefix, user, secret, rest), nil
+	if parsed.Scheme != "https" {
+		return "", fmt.Errorf("token/basic auth requires an https:// url, got %q", url)
+	}
+	parsed.User = urlpkg.UserPassword(user, secret)
+	return parsed.String(), nil
 }

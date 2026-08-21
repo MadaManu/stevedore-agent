@@ -18,23 +18,10 @@ source:
   git:
     url: https://github.com/your-org/your-apps-repo.git
     branch: main
-    # Optional: where the repository is checked out.
-    # Default: <STEVEDORE_HOME>/git-source (or /etc/stevedore/git-source).
-    # Overridable by STEVEDORE_WORKDIR.
-    # workdir: /etc/stevedore/git-source
     auth:
-      # token auth (GitHub/GitLab personal access or app tokens):
       token:
         value: ${GIT_TOKEN}
 
-      # --- basic auth alternative ---
-      # basic:
-      #   username: ${GIT_USERNAME}
-      #   password: ${GIT_PASSWORD}
-
-      # --- ssh alternative (url must be an ssh git url) ---
-      # ssh:
-      #   keyPath: /etc/stevedore/keys/id_ed25519
 
 poll:
   interval: 60s

@@ -62,6 +62,7 @@ Rules:
 
 - App name is derived from folder name.
 - Duplicate app names across host/shared trees fail startup.
+- Host-specific manifests can live under `<fqdn>/apps/*/stevedore.yml`.
 - `networks` and `volumes` support multi-entry declarations.
 - Legacy `network` and `volume` fields are still accepted.
 - Secret placeholders use `${provider:path}` (currently `local` provider).
