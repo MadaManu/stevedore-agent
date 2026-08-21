@@ -29,6 +29,7 @@ This project is functional and actively evolving. Interfaces and behavior may ch
 
 - Go 1.24+
 - Docker Engine with CLI access
+- Git 1.8.5+ when using `source.git` (Stevedore relies on `git -C`)
 - Linux + systemd for service install/uninstall commands
 - Optional: Apache + certbot if using `expose.provider: apache`
 
