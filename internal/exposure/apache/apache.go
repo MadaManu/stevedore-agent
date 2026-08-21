@@ -102,6 +102,7 @@ type vhostData struct {
 	ProxyTarget         string
 	HasCustomPathPrefix bool
 	PathPrefixRegex     string
+	PathPrefixRule      string
 	PathWithSlash       string
 }
 
@@ -149,6 +150,7 @@ func (p *Provider) Apply(app exposure.App) error {
 		ProxyTarget:         route.proxyTarget,
 		HasCustomPathPrefix: route.hasCustomPathPrefix,
 		PathPrefixRegex:     route.pathPrefixRegex,
+		PathPrefixRule:      route.pathPrefixRule,
 		PathWithSlash:       route.pathWithSlash,
 	}
 
