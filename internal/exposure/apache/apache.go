@@ -307,6 +307,7 @@ type routeConfig struct {
 	proxyTarget         string
 	hasCustomPathPrefix bool
 	pathPrefixRegex     string
+	pathPrefixRule      string
 	pathWithSlash       string
 }
 
@@ -383,6 +384,7 @@ func buildRouteConfig(pathCfg pathConfig, backendPort int) routeConfig {
 		proxyTarget:         proxyTarget,
 		hasCustomPathPrefix: true,
 		pathPrefixRegex:     regexp.QuoteMeta(pathCfg.pathPrefix),
+		pathPrefixRule:      strings.TrimPrefix(pathCfg.pathPrefix, "/"),
 		pathWithSlash:       proxyPath,
 	}
 }

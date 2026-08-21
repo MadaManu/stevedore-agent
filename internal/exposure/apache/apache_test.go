@@ -76,6 +76,9 @@ func TestBuildRouteConfig_PathStripsPrefixByDefault(t *testing.T) {
 	if route.pathPrefixRegex != "/hello" {
 		t.Fatalf("unexpected pathPrefixRegex: %q", route.pathPrefixRegex)
 	}
+	if route.pathPrefixRule != "hello" {
+		t.Fatalf("unexpected pathPrefixRule: %q", route.pathPrefixRule)
+	}
 }
 
 func TestBuildRouteConfig_PathKeepsPrefixWhenRequested(t *testing.T) {
