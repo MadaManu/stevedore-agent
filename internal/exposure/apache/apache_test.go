@@ -1,6 +1,10 @@
 package apache
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+	"text/template"
+)
 
 func TestResolvePathConfig_Defaults(t *testing.T) {
 	cfg, err := resolvePathConfig(map[string]interface{}{})
@@ -85,5 +89,31 @@ func TestBuildRouteConfig_PathKeepsPrefixWhenRequested(t *testing.T) {
 	route := buildRouteConfig(pathConfig{pathPrefix: "/hello", stripPathPrefix: false}, 8081)
 	if route.proxyTarget != "http://127.0.0.1:8081/hello/" {
 		t.Fatalf("unexpected proxyTarget: %q", route.proxyTarget)
+	}
+}
+
+func TestRenderHttpTemplateWithCustomPathPrefix(t *testing.T) {
+	tmpl, err := template.ParseFS(templateFS, "templates/vhost-http.conf.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, vhostData{
+		AppName:             "demo-api",
+		Domain:              "demo.example.com",
+		Webroot:             "/var/www/letsencrypt",
+		ProxyPath:           "/hello/",
+		ProxyTarget:         "http://127.0.0.1:8081/",
+		HasCustomPathPrefix: true,
+		PathPrefixRegex:     "/hello",
+		PathPrefixRule:      "hello",
+		PathWithSlash:       "/hello/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("RewriteRule ^hello$ /hello/ [R=301,L]")) {
+		t.Fatalf("expected rendered template to include custom path redirect, got:\n%s", buf.String())
 	}
 }
