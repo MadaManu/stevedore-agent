@@ -16,9 +16,11 @@
     # Do NOT proxy the ACME challenge path — serve it from disk.
     ProxyPass /.well-known/acme-challenge/ !
 {{- if .HasCustomPathPrefix }}
-    ProxyPassMatch   ^/{{.PathPrefixRule}}/?$ {{.ProxyTarget}}
-    ProxyPassMatch   ^/{{.PathPrefixRule}}/(.*)$ {{.ProxyTarget}}$1
-    ProxyPassReverse /{{.PathPrefixRule}}/ {{.ProxyTarget}}
+    RedirectMatch 301 ^/{{.PathPrefixRule}}$ /{{.PathPrefixRule}}/
+    <Location "/{{.PathPrefixRule}}/">
+        ProxyPass {{.ProxyTarget}}
+        ProxyPassReverse {{.ProxyTarget}}
+    </Location>
 {{- else }}
     ProxyPass        {{.ProxyPath}} {{.ProxyTarget}}
     ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}

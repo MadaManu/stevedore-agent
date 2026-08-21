@@ -44,9 +44,10 @@
 {{- if .HasCustomPathPrefix }}
     RewriteEngine On
     RewriteRule ^/{{.PathPrefixRule}}$ {{.PathWithSlash}} [R=301,L]
-    ProxyPassMatch   ^/{{.PathPrefixRule}}/?$ {{.ProxyTarget}}
-    ProxyPassMatch   ^/{{.PathPrefixRule}}/(.*)$ {{.ProxyTarget}}$1
-    ProxyPassReverse /{{.PathPrefixRule}}/ {{.ProxyTarget}}
+    <Location "/{{.PathPrefixRule}}/">
+        ProxyPass {{.ProxyTarget}}
+        ProxyPassReverse {{.ProxyTarget}}
+    </Location>
 {{- else }}
     ProxyPass        {{.ProxyPath}} {{.ProxyTarget}}
     ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}

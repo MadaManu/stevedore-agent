@@ -115,14 +115,14 @@ func TestRenderHttpTemplateWithCustomPathPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("ProxyPassMatch   ^/hello/?$ http://127.0.0.1:8081/")) {
-		t.Fatalf("expected rendered template to include root proxy match, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte("RedirectMatch 301 ^/hello$ /hello/")) {
+		t.Fatalf("expected rendered template to include redirect match, got:\n%s", buf.String())
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("ProxyPassMatch   ^/hello/(.*)$ http://127.0.0.1:8081/$1")) {
-		t.Fatalf("expected rendered template to include path proxy match, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte("<Location \"/hello/\">")) {
+		t.Fatalf("expected rendered template to include location block, got:\n%s", buf.String())
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("ProxyPassReverse /hello/ http://127.0.0.1:8081/")) {
-		t.Fatalf("expected rendered template to include reverse proxy mapping, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte("ProxyPass http://127.0.0.1:8081/")) {
+		t.Fatalf("expected rendered template to include proxy pass target, got:\n%s", buf.String())
 	}
 }
 
