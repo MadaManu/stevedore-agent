@@ -43,7 +43,7 @@
     ProxyPreserveHost On
 {{- if .HasCustomPathPrefix }}
     RewriteEngine On
-    RewriteRule ^{{.PathPrefixRegex}}$ {{.PathWithSlash}} [R=301,L]
+    RewriteRule ^{{.PathPrefixRule}}$ {{.PathWithSlash}} [R=301,L]
 {{- end }}
     ProxyPass        {{.ProxyPath}} {{.ProxyTarget}}
     ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}

@@ -84,7 +84,7 @@ stevedore-agent
 - Config path: `${STEVEDORE_HOME}/config.yml` (default home: `/etc/stevedore`)
 - Precedence: **environment overrides > config.yml > built-in defaults**
 - Source selection is inferred from `source.local` or `source.git`
-- Git auth selection is inferred from `source.git.auth.{token|basic|ssh}`
+- Git auth selection is inferred from `source.git.auth.{token|basic|ssh}`; use token auth for GitHub, and for providers like Bitbucket you can often use the token as the basic-auth password.
 
 See full details in [docs/run.md](docs/run.md).
 

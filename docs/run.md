@@ -36,8 +36,8 @@ For a first-run walkthrough with the bundled demo apps, see
 | `source.git.url` | string | Required when `source.git` is used |
 | `source.git.branch` | string | Default `main` |
 | `source.git.workdir` | string | Default `<STEVEDORE_HOME>/git-source` |
-| `source.git.auth.token.value` | string | Optional, `${ENV}` supported |
-| `source.git.auth.basic.username/password` | string | Optional, `${ENV}` supported |
+| `source.git.auth.token.value` | string | Optional, `${ENV}` supported. Use token auth for GitHub and similar providers. |
+| `source.git.auth.basic.username/password` | string | Optional, `${ENV}` supported. Some providers, like Bitbucket, accept a token as the basic-auth password. |
 | `source.git.auth.ssh.keyPath` | string | Optional, `${ENV}` supported |
 | `secrets.providers.local.file` | string | Local YAML/JSON secrets store |
 | `exposure.apache.sitesDir` | string | Required only when Apache exposure is used |
@@ -46,6 +46,7 @@ Rules:
 
 - Exactly one of `source.local` or `source.git`
 - At most one of `source.git.auth.token`, `basic`, `ssh`
+- Prefer `source.git.auth.token` for GitHub; if your provider uses basic auth, some services such as Bitbucket accept a token as the password.
 
 ## Environment overrides
 

@@ -7,6 +7,9 @@
 # inferred from which node is present under `source.git.auth` (define at most
 # one of `token`, `basic`, or `ssh`; omit entirely for public repos).
 #
+# Use token auth for GitHub. For providers that require basic auth, such as
+# Bitbucket, you can usually place the token in the password field.
+#
 # Secrets support ${ENV_VAR} interpolation so they can be injected at runtime
 # instead of being stored in plaintext.
 
@@ -21,6 +24,9 @@ source:
     auth:
       token:
         value: ${GIT_TOKEN}
+      # basic:
+      #   username: ${GIT_USERNAME}
+      #   password: ${GIT_TOKEN}
 
 
 poll:
