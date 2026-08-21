@@ -13,7 +13,27 @@ Exposure behavior is also independent of the number of bind mounts configured.
 
 ## Host prerequisites
 
-Install and enable the required Apache modules once:
+Stevedore writes vhost files and reloads the Apache instance that is already
+serving traffic on the host. That Apache must have these modules enabled:
+
+| Module | Used for |
+|---|---|
+| `mod_proxy` | reverse proxying to the container backend |
+| `mod_proxy_http` | proxying HTTP requests to `http://127.0.0.1:<hostPort>/` |
+| `mod_rewrite` | path-prefix redirects and path-based routing fallback |
+| `mod_headers` | HSTS on TLS vhosts |
+| `mod_ssl` | HTTPS vhosts when `ssl: true` |
+
+Apache module docs:
+
+- <https://httpd.apache.org/docs/2.4/mod/mod_proxy.html>
+- <https://httpd.apache.org/docs/2.4/mod/mod_proxy_http.html>
+- <https://httpd.apache.org/docs/2.4/mod/mod_rewrite.html>
+- <https://httpd.apache.org/docs/2.4/mod/mod_headers.html>
+- <https://httpd.apache.org/docs/2.4/mod/mod_ssl.html>
+
+Install and enable the required Apache modules once, using the mechanism
+appropriate for your build:
 
 ```bash
 # Debian / Ubuntu
@@ -23,10 +43,34 @@ sudo a2enmod proxy proxy_http ssl rewrite headers
 sudo systemctl reload apache2
 ```
 
+For custom or source-built Apache installations, enable the same modules in
+`httpd.conf` (or the included module file) with `LoadModule` directives, for
+example:
+
+```apache
+LoadModule proxy_module modules/mod_proxy.so
+LoadModule proxy_http_module modules/mod_proxy_http.so
+LoadModule rewrite_module modules/mod_rewrite.so
+LoadModule headers_module modules/mod_headers.so
+LoadModule ssl_module modules/mod_ssl.so
+```
+
 > `certbot` is only required when at least one app sets `ssl: true`.
 
 Port **80** must be reachable from the internet for the Let's Encrypt HTTP-01
 challenge. Port **443** must also be open for HTTPS traffic.
+
+If your Apache is installed in a non-standard location, Stevedore still needs
+to reload the same instance. Either make `apachectl` available on `$PATH` or
+place an `apachectl` wrapper next to the Apache `sites-enabled` directory that
+Stevedore uses.
+
+To verify the active Apache build and loaded modules:
+
+```bash
+apachectl -S
+apachectl -M
+```
 
 ---
 
@@ -41,6 +85,13 @@ exposure:
 `sitesDir` can also be set via the `STEVEDORE_APACHE_SITES_DIR` environment
 variable (activates the provider even if the `exposure.apache` block is absent
 from `config.yml`).
+
+Stevedore writes one `<app>.conf` file per app into `sitesDir` and then reloads
+Apache. Make sure your Apache config includes that directory, for example:
+
+```apache
+IncludeOptional /sys_apps_01/apache/server20Cent/versions/server2.4.33/sites-enabled/*.conf
+```
 
 ---
 
@@ -137,6 +188,9 @@ Generated vhost (`/etc/apache2/sites-enabled/demo-api.conf`):
 </VirtualHost>
 ```
 
+For path-prefix exposure, Stevedore emits both `ProxyPass` and rewrite-based
+rules so the same manifest works across different Apache builds.
+
 ### HTTPS example (Let's Encrypt)
 
 ```yaml
@@ -220,6 +274,10 @@ Generated vhost after certificate is obtained:
 </VirtualHost>
 ```
 
+The TLS vhost uses the same routing rules as the HTTP-only vhost and still
+expects the Apache host to serve the ACME challenge path from the configured
+`webroot`.
+
 ---
 
 ## Certificate storage
@@ -263,6 +321,7 @@ systemctl enable --now certbot.timer
 | `certbot certonly: … connection refused`  | Port 80 not open or Apache not running     | Open port 80, ensure Apache is active                      |
 | `certbot certonly: … DNS problem`         | `domain` does not resolve to this host     | Update your DNS A record                                   |
 | `apache reload … failed`                  | Apache config syntax error                 | Run `apachectl configtest`                                 |
+| `Invalid command 'ProxyPreserveHost'`     | `mod_proxy` not enabled                    | Enable `mod_proxy` and `mod_proxy_http`                    |
 | `apache expose: app "x" has no host port` | `ports` block missing from `stevedore.yml` | Add at least one `ports` entry or set `expose.config.port` |
 | `apache expose config requires 'email'`   | `ssl: true` but no `email` in config       | Add `email: you@example.com` under `expose.config`         |
 
