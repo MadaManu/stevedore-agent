@@ -1,7 +1,7 @@
 # Apache exposure provider
 
 The bundled `apache` exposure provider makes stevedore-agent manage Apache VirtualHost
-configuration files for your applications.  On each reconcile cycle it writes a
+configuration files for your applications. On each reconcile cycle it writes a
 `.conf` file to the configured `sites-enabled` directory, handles Let's Encrypt
 certificate issuance/renewal when SSL is requested, and reloads Apache.
 
@@ -26,7 +26,7 @@ sudo systemctl reload apache2
 > `certbot` is only required when at least one app sets `ssl: true`.
 
 Port **80** must be reachable from the internet for the Let's Encrypt HTTP-01
-challenge.  Port **443** must also be open for HTTPS traffic.
+challenge. Port **443** must also be open for HTTPS traffic.
 
 ---
 
@@ -48,13 +48,30 @@ from `config.yml`).
 
 All `expose.config` fields understood by the Apache provider:
 
-| Field     | Type   | Required              | Default                  | Description |
-|-----------|--------|-----------------------|--------------------------|-------------|
-| `domain`  | string | **yes**               | —                        | Public hostname Apache will serve, e.g. `api.example.com`. Must resolve to this host's IP address. |
-| `ssl`     | bool   | no                    | `false`                  | Enable HTTPS via Let's Encrypt.  When `true` certbot obtains/renews a certificate automatically. |
-| `email`   | string | **yes when ssl:true** | —                        | E-mail address for the Let's Encrypt account and expiry notifications. |
-| `webroot` | string | no                    | `/var/www/letsencrypt`   | Directory used for the ACME HTTP-01 challenge files. Apache must be able to serve `/.well-known/acme-challenge/` from this path. |
-| `port`    | int    | no                    | first `ports[].hostPort` | Override which host port stevedore proxies traffic to.  Useful when the app exposes multiple ports. |
+| Field             | Type   | Required          | Default                  | Description                                                                                                                           |
+|-------------------|--------|-------------------|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `domain`          | string | ✅                 | —                        | Public hostname Apache will serve, e.g. `api.example.com`. Must resolve to this host's IP address.                                    |
+| `ssl`             | bool   | ❌                 | `false`                  | Enable HTTPS via Let's Encrypt. When `true` certbot obtains/renews a certificate automatically.                                       |
+| `email`           | string | ✅ when `ssl:true` | —                        | E-mail address for the Let's Encrypt account and expiry notifications.                                                                |
+| `webroot`         | string | ❌                 | `/var/www/letsencrypt`   | Directory used for the ACME HTTP-01 challenge files. Apache must be able to serve `/.well-known/acme-challenge/` from this path.      |
+| `port`            | int    | ❌                 | first `ports[].hostPort` | Override which host port stevedore proxies traffic to. Useful when the app exposes multiple ports.                                    |
+| `path`            | string | ❌                 | `/`                      | Path prefix to expose on the domain, e.g. `/hello`.                                                                                   |
+| `stripPathPrefix` | bool   | ❌                 | `true`                   | When `path` is not `/`, strip the prefix before forwarding to the container. If `false`, the backend receives the full prefixed path. |
+
+### Path-based exposure example
+
+```yaml
+expose:
+  enabled: true
+  provider: apache
+  config:
+    domain: mada.com
+    path: /hello
+    stripPathPrefix: true
+```
+
+This exposes only `mada.com/hello` (and children like `mada.com/hello/api`) to
+the app. Requests to `/hello` are redirected to `/hello/`.
 
 ### HTTP-only example
 
@@ -214,7 +231,7 @@ certbot delete --cert-name <domain>
 ## Renewal
 
 stevedore-agent calls `certbot renew` on every reconcile cycle where `ssl: true`
-and the certificate already exists.  certbot only actually renews when the
+and the certificate already exists. certbot only actually renews when the
 certificate is within 30 days of expiry (certbot's default), so the extra calls
 are cheap no-ops the vast majority of the time.
 
@@ -228,14 +245,14 @@ systemctl enable --now certbot.timer
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| `certbot: command not found` | certbot not installed | `apt-get install certbot` |
-| `certbot certonly: … connection refused` | Port 80 not open or Apache not running | Open port 80, ensure Apache is active |
-| `certbot certonly: … DNS problem` | `domain` does not resolve to this host | Update your DNS A record |
-| `apache reload … failed` | Apache config syntax error | Run `apachectl configtest` |
+| Symptom                                   | Likely cause                               | Fix                                                        |
+|-------------------------------------------|--------------------------------------------|------------------------------------------------------------|
+| `certbot: command not found`              | certbot not installed                      | `apt-get install certbot`                                  |
+| `certbot certonly: … connection refused`  | Port 80 not open or Apache not running     | Open port 80, ensure Apache is active                      |
+| `certbot certonly: … DNS problem`         | `domain` does not resolve to this host     | Update your DNS A record                                   |
+| `apache reload … failed`                  | Apache config syntax error                 | Run `apachectl configtest`                                 |
 | `apache expose: app "x" has no host port` | `ports` block missing from `stevedore.yml` | Add at least one `ports` entry or set `expose.config.port` |
-| `apache expose config requires 'email'` | `ssl: true` but no `email` in config | Add `email: you@example.com` under `expose.config` |
+| `apache expose config requires 'email'`   | `ssl: true` but no `email` in config       | Add `email: you@example.com` under `expose.config`         |
 
 ---
 
@@ -244,5 +261,5 @@ systemctl enable --now certbot.timer
 - Plain HTTP: [`examples/apps/demo-api/stevedore.yml`](../examples/apps/demo-api/stevedore.yml)
 - HTTPS / SSL: [`examples/apps/demo-api-ssl/stevedore.yml`](../examples/apps/demo-api-ssl/stevedore.yml)
 - VHost templates (embedded in binary):
-  - `internal/exposure/apache/templates/vhost-http.conf.tmpl`
-  - `internal/exposure/apache/templates/vhost-ssl.conf.tmpl`
+    - `internal/exposure/apache/templates/vhost-http.conf.tmpl`
+    - `internal/exposure/apache/templates/vhost-ssl.conf.tmpl`

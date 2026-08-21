@@ -24,6 +24,10 @@
 //	                                default /var/www/letsencrypt
 //	port     (int,    optional)  – override which hostPort to proxy traffic to;
 //	                                defaults to the first port listed under ports:
+//	path     (string, optional)  – request path prefix to expose, e.g. "/hello";
+//	                                default "/"
+//	stripPathPrefix (bool, optional) – when path != "/", strip the prefix before
+//	                                proxying to the backend; default true
 package apache
 
 import (
@@ -32,7 +36,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -79,16 +85,24 @@ func (p *Provider) Validate(config map[string]interface{}) error {
 			return fmt.Errorf("apache expose config requires 'email' when ssl is true (used for Let's Encrypt account registration)")
 		}
 	}
+	if _, err := resolvePathConfig(config); err != nil {
+		return err
+	}
 	return nil
 }
 
 // vhostData is the template context passed to both vhost templates.
 type vhostData struct {
-	AppName     string
-	Domain      string
-	BackendPort int
-	Webroot     string
-	CertDir     string
+	AppName             string
+	Domain              string
+	BackendPort         int
+	Webroot             string
+	CertDir             string
+	ProxyPath           string
+	ProxyTarget         string
+	HasCustomPathPrefix bool
+	PathPrefixRegex     string
+	PathWithSlash       string
 }
 
 // Apply writes an Apache VirtualHost config for the app and reloads Apache.
@@ -119,13 +133,23 @@ func (p *Provider) Apply(app exposure.App) error {
 	if err != nil {
 		return err
 	}
+	pathCfg, err := resolvePathConfig(app.Config)
+	if err != nil {
+		return err
+	}
+	route := buildRouteConfig(pathCfg, backendPort)
 
 	data := vhostData{
-		AppName:     app.Name,
-		Domain:      domain,
-		BackendPort: backendPort,
-		Webroot:     webroot,
-		CertDir:     filepath.Join(certBasePath, domain),
+		AppName:             app.Name,
+		Domain:              domain,
+		BackendPort:         backendPort,
+		Webroot:             webroot,
+		CertDir:             filepath.Join(certBasePath, domain),
+		ProxyPath:           route.proxyPath,
+		ProxyTarget:         route.proxyTarget,
+		HasCustomPathPrefix: route.hasCustomPathPrefix,
+		PathPrefixRegex:     route.pathPrefixRegex,
+		PathWithSlash:       route.pathWithSlash,
 	}
 
 	if ssl {
@@ -271,4 +295,94 @@ func resolveBackendPort(app exposure.App) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("apache expose: app %q has no host port; declare at least one port or set expose.config.port", app.Name)
+}
+
+type pathConfig struct {
+	pathPrefix      string
+	stripPathPrefix bool
+}
+
+type routeConfig struct {
+	proxyPath           string
+	proxyTarget         string
+	hasCustomPathPrefix bool
+	pathPrefixRegex     string
+	pathWithSlash       string
+}
+
+func resolvePathConfig(config map[string]interface{}) (pathConfig, error) {
+	pathPrefix := "/"
+	if raw, ok := config["path"]; ok {
+		pathValue, ok := raw.(string)
+		if !ok {
+			return pathConfig{}, fmt.Errorf("apache expose config field 'path' must be a string")
+		}
+		normalized, err := normalizePathPrefix(pathValue)
+		if err != nil {
+			return pathConfig{}, err
+		}
+		pathPrefix = normalized
+	}
+
+	stripPathPrefix := true
+	if raw, ok := config["stripPathPrefix"]; ok {
+		boolValue, ok := raw.(bool)
+		if !ok {
+			return pathConfig{}, fmt.Errorf("apache expose config field 'stripPathPrefix' must be a boolean")
+		}
+		stripPathPrefix = boolValue
+	}
+
+	return pathConfig{
+		pathPrefix:      pathPrefix,
+		stripPathPrefix: stripPathPrefix,
+	}, nil
+}
+
+func normalizePathPrefix(v string) (string, error) {
+	p := strings.TrimSpace(v)
+	if p == "" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", fmt.Errorf("apache expose config field 'path' must start with '/'")
+	}
+	if strings.ContainsAny(p, "?#") {
+		return "", fmt.Errorf("apache expose config field 'path' must not include query strings or fragments")
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." {
+		cleaned = "/"
+	}
+	if !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
+	}
+	if strings.ContainsAny(cleaned, " \t\r\n") {
+		return "", fmt.Errorf("apache expose config field 'path' must not contain whitespace")
+	}
+	return cleaned, nil
+}
+
+func buildRouteConfig(pathCfg pathConfig, backendPort int) routeConfig {
+	defaultTarget := fmt.Sprintf("http://127.0.0.1:%d/", backendPort)
+	if pathCfg.pathPrefix == "/" {
+		return routeConfig{
+			proxyPath:   "/",
+			proxyTarget: defaultTarget,
+		}
+	}
+
+	proxyPath := pathCfg.pathPrefix + "/"
+	proxyTarget := defaultTarget
+	if !pathCfg.stripPathPrefix {
+		proxyTarget = fmt.Sprintf("http://127.0.0.1:%d%s/", backendPort, pathCfg.pathPrefix)
+	}
+
+	return routeConfig{
+		proxyPath:           proxyPath,
+		proxyTarget:         proxyTarget,
+		hasCustomPathPrefix: true,
+		pathPrefixRegex:     regexp.QuoteMeta(pathCfg.pathPrefix),
+		pathWithSlash:       proxyPath,
+	}
 }

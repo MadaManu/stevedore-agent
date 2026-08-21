@@ -15,10 +15,13 @@
     ProxyPreserveHost On
     # Do NOT proxy the ACME challenge path — serve it from disk.
     ProxyPass /.well-known/acme-challenge/ !
-    ProxyPass        / http://127.0.0.1:{{.BackendPort}}/
-    ProxyPassReverse / http://127.0.0.1:{{.BackendPort}}/
+{{- if .HasCustomPathPrefix }}
+    RewriteEngine On
+    RewriteRule ^{{.PathPrefixRegex}}$ {{.PathWithSlash}} [R=301,L]
+{{- end }}
+    ProxyPass        {{.ProxyPath}} {{.ProxyTarget}}
+    ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}
 
     ErrorLog  ${APACHE_LOG_DIR}/{{.AppName}}-error.log
     CustomLog ${APACHE_LOG_DIR}/{{.AppName}}-access.log combined
 </VirtualHost>
-

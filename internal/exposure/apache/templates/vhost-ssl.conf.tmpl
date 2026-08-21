@@ -17,6 +17,9 @@
     RewriteEngine On
     # Let the ACME challenge through before redirecting.
     RewriteCond %{REQUEST_URI} !^/.well-known/acme-challenge/
+{{- if .HasCustomPathPrefix }}
+    RewriteCond %{REQUEST_URI} ^{{.PathPrefixRegex}}(/|$)
+{{- end }}
     RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]
 </VirtualHost>
 
@@ -38,10 +41,13 @@
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 
     ProxyPreserveHost On
-    ProxyPass        / http://127.0.0.1:{{.BackendPort}}/
-    ProxyPassReverse / http://127.0.0.1:{{.BackendPort}}/
+{{- if .HasCustomPathPrefix }}
+    RewriteEngine On
+    RewriteRule ^{{.PathPrefixRegex}}$ {{.PathWithSlash}} [R=301,L]
+{{- end }}
+    ProxyPass        {{.ProxyPath}} {{.ProxyTarget}}
+    ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}
 
     ErrorLog  ${APACHE_LOG_DIR}/{{.AppName}}-error.log
     CustomLog ${APACHE_LOG_DIR}/{{.AppName}}-access.log combined
 </VirtualHost>
-
