@@ -43,11 +43,16 @@
     ProxyPreserveHost On
 {{- if .HasCustomPathPrefix }}
     RewriteEngine On
-    RewriteRule ^{{.PathPrefixRule}}$ {{.PathWithSlash}} [R=301,L]
-    RewriteRule ^{{.PathPrefixRule}}(?:/(.*))?$ {{.ProxyTarget}}$1 [P,L]
+    RewriteRule ^/{{.PathPrefixRule}}$ {{.PathWithSlash}} [R=301,L]
+    RewriteRule ^/{{.PathPrefixRule}}(?:/(.*))?$ {{.ProxyTarget}}$1 [P,L]
 {{- end }}
+{{- if .HasCustomPathPrefix }}
+    ProxyPassMatch   ^/{{.PathPrefixRule}}(?:/(.*))?$ {{.ProxyTarget}}$1
+    ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}
+{{- else }}
     ProxyPass        {{.ProxyPath}} {{.ProxyTarget}}
     ProxyPassReverse {{.ProxyPath}} {{.ProxyTarget}}
+{{- end }}
 
     ErrorLog  ${APACHE_LOG_DIR}/{{.AppName}}-error.log
     CustomLog ${APACHE_LOG_DIR}/{{.AppName}}-access.log combined
