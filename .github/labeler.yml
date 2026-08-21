@@ -10,7 +10,7 @@ documentation:
 ci/cd:
   - changed-files:
       - all-globs-to-all-files:
-          - ".github/workflows/**"
+          - ".github/**"
 
 dependencies:
   - changed-files:
