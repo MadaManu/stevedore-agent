@@ -66,7 +66,7 @@ func New(sitesDir string) *Provider {
 	if sitesDir == "" {
 		sitesDir = defaultSitesDir
 	}
-	return &Provider{SitesDir: sitesDir, ReloadCommand: "apachectl graceful"}
+	return &Provider{SitesDir: sitesDir, ReloadCommand: resolveReloadCommand(sitesDir)}
 }
 
 // Name returns "apache" — the value used in expose.provider.
@@ -257,6 +257,19 @@ func (p *Provider) reloadApache() error {
 		return fmt.Errorf("apache reload (%s): %w: %s", p.ReloadCommand, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func resolveReloadCommand(sitesDir string) string {
+	if apachectl, err := exec.LookPath("apachectl"); err == nil {
+		return apachectl + " graceful"
+	}
+
+	candidate := filepath.Join(filepath.Dir(sitesDir), "bin", "apachectl")
+	if info, err := os.Stat(candidate); err == nil && info.Mode()&0o111 != 0 {
+		return candidate + " graceful"
+	}
+
+	return "apachectl graceful"
 }
 
 // reloadApacheIfAvailable reloads Apache only when the reload binary is on

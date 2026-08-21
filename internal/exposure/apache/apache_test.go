@@ -2,6 +2,8 @@ package apache
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 	"text/template"
 )
@@ -115,5 +117,34 @@ func TestRenderHttpTemplateWithCustomPathPrefix(t *testing.T) {
 	}
 	if !bytes.Contains(buf.Bytes(), []byte("RewriteRule ^hello$ /hello/ [R=301,L]")) {
 		t.Fatalf("expected rendered template to include custom path redirect, got:\n%s", buf.String())
+	}
+}
+
+func TestResolveReloadCommandUsesSiblingApachectl(t *testing.T) {
+	root := t.TempDir()
+	sitesDir := filepath.Join(root, "sites-enabled")
+	binDir := filepath.Join(root, "bin")
+	emptyPath := filepath.Join(root, "empty")
+
+	if err := os.MkdirAll(sitesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(emptyPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", emptyPath)
+
+	apachectl := filepath.Join(binDir, "apachectl")
+	if err := os.WriteFile(apachectl, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := resolveReloadCommand(sitesDir)
+	want := apachectl + " graceful"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
