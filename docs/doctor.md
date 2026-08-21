@@ -32,7 +32,7 @@ STEVEDORE_DEBUG=true stevedore-agent doctor
   - git workdir / SSH key when `source.git` is configured
 - required local binaries:
   - `docker`
-  - `git` when `source.git` is configured
+  - `git` 1.8.5+ when `source.git` is configured (Stevedore uses `git -C`)
 - exposure provider directories:
   - `exposure.apache.sitesDir` is only checked when the apache provider is configured
 
@@ -160,4 +160,3 @@ This is especially useful after changing:
 - local secrets files
 - source repository paths
 - filesystem permissions
-

@@ -1,6 +1,6 @@
 documentation:
   - changed-files:
-      - all-globs-to-all-files:
+      - any-glob-to-any-file:
           - "docs/**"
           - "README.md"
           - "CONTRIBUTING.md"
@@ -9,12 +9,12 @@ documentation:
 
 ci/cd:
   - changed-files:
-      - all-globs-to-all-files:
+      - any-glob-to-any-file:
           - ".github/**"
 
 dependencies:
   - changed-files:
-      - all-globs-to-all-files:
+      - any-glob-to-any-file:
           - "go.mod"
           - "go.sum"
 

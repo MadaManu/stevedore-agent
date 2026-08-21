@@ -42,6 +42,8 @@ For a first-run walkthrough with the bundled demo apps, see
 | `secrets.providers.local.file` | string | Local YAML/JSON secrets store |
 | `exposure.apache.sitesDir` | string | Required only when Apache exposure is used |
 
+Stevedore uses `git -C` when `source.git` is configured, so the host must have Git 1.8.5 or newer.
+
 Rules:
 
 - Exactly one of `source.local` or `source.git`
