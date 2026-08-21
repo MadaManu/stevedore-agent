@@ -1,6 +1,6 @@
 documentation:
   - changed-files:
-      - any-glob-to-any-file:
+      - all-globs-to-all-files:
           - "docs/**"
           - "README.md"
           - "CONTRIBUTING.md"
@@ -9,12 +9,12 @@ documentation:
 
 ci/cd:
   - changed-files:
-      - any-glob-to-any-file:
+      - all-globs-to-all-files:
           - ".github/workflows/**"
 
 dependencies:
   - changed-files:
-      - any-glob-to-any-file:
+      - all-globs-to-all-files:
           - "go.mod"
           - "go.sum"
 
@@ -36,7 +36,6 @@ doctor:
           - "cmd/stevedore/doctor.go"
           - "cmd/stevedore/doctor_test.go"
           - "internal/doctor/**"
-          - "docs/doctor.md"
 
 manifests:
   - changed-files:
@@ -50,13 +49,11 @@ reconciler:
           - "internal/reconciler/**"
           - "cmd/stevedore/run.go"
           - "cmd/stevedore/run_test.go"
-          - "docs/run.md"
 
 docker:
   - changed-files:
       - any-glob-to-any-file:
           - "internal/docker/**"
-          - "docs/docker-private-registry.md"
 
 git:
   - changed-files:
@@ -67,15 +64,9 @@ exposure:
   - changed-files:
       - any-glob-to-any-file:
           - "internal/exposure/**"
-          - "docs/apache-exposure.md"
 
 secrets:
   - changed-files:
       - any-glob-to-any-file:
           - "internal/secrets/**"
           - "examples/config/secrets.local.yml"
-
-tests:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/*_test.go"

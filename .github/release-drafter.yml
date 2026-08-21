@@ -40,9 +40,6 @@ categories:
   - title: "Secrets"
     labels:
       - "secrets"
-  - title: "Tests"
-    labels:
-      - "tests"
   - title: "Dependencies"
     labels:
       - "dependencies"
@@ -69,5 +66,4 @@ version-resolver:
       - "dependencies"
       - "documentation"
       - "ci/cd"
-      - "tests"
   default: patch
