@@ -60,17 +60,29 @@ All `expose.config` fields understood by the Apache provider:
 
 ### Path-based exposure example
 
+Repository layout:
+
+```text
+<repo-root>/
+  example.com/
+    apps/
+      demo-api/
+        stevedore.yml
+```
+
+Example manifest:
+
 ```yaml
 expose:
   enabled: true
   provider: apache
   config:
-    domain: mada.com
+    domain: example.com
     path: /hello
     stripPathPrefix: true
 ```
 
-This exposes only `mada.com/hello` (and children like `mada.com/hello/api`) to
+This exposes only `example.com/hello` (and children like `example.com/hello/api`) to
 the app. Requests to `/hello` are redirected to `/hello/`.
 
 ### HTTP-only example

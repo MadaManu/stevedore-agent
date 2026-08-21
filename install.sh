@@ -114,6 +114,25 @@ install_layout() {
 
 install_layout
 
+verify_checksum() {
+  local expected_checksum actual_checksum
+
+  if ! expected_checksum="$(
+    tr -d '\r' < "${TMP_DIR}/checksums.txt" \
+      | awk -v asset="$ASSET_NAME" '$2 == asset { print $1; found = 1 } END { if (!found) exit 1 }'
+  )"; then
+    echo "failed to find checksum for ${ASSET_NAME}" >&2
+    exit 1
+  fi
+
+  actual_checksum="$(sha256sum "${TMP_DIR}/${ASSET_NAME}" | awk '{ print $1 }')"
+
+  if [ "$expected_checksum" != "$actual_checksum" ]; then
+    echo "checksum verification failed for ${ASSET_NAME}" >&2
+    exit 1
+  fi
+}
+
 if [ "$FORCE_REINSTALL" -eq 0 ] && [ "$CURRENT_VERSION" = "$VERSION" ] && [ -x "$VERSIONED_BIN" ]; then
   echo "stevedore-agent ${VERSION} is already installed at ${TARGET_BIN}"
 else
@@ -129,7 +148,7 @@ else
   curl -fsSL -o "${TMP_DIR}/${ASSET_NAME}" "${BASE_URL}/${ASSET_NAME}"
   curl -fsSL -o "${TMP_DIR}/checksums.txt" "${BASE_URL}/checksums.txt"
 
-  (cd "$TMP_DIR" && sha256sum -c checksums.txt --ignore-missing --quiet)
+  verify_checksum
   install -d -m 0755 "$INSTALL_DIR"
   install -m 0755 "${TMP_DIR}/${ASSET_NAME}" "$VERSIONED_BIN"
 fi

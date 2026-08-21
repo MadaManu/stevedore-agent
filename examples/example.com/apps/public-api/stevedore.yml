@@ -1,0 +1,26 @@
+image:
+  repository: nginx
+  tag: 1.31.3
+container:
+  name: public-api
+restartPolicy: always
+ports:
+  - name: http
+    containerPort: 80
+    hostPort: 8083
+environment:
+  NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+  APP_NAME: public-api
+volumes:
+  - name: data
+    hostPath: /var/lib/stevedore/public-api/data
+    mountPath: /srv/data
+networks:
+  - name: example
+expose:
+  enabled: true
+  provider: apache
+  config:
+    domain: example.com
+    path: /api
+    stripPathPrefix: true
