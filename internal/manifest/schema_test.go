@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -86,5 +87,31 @@ func TestApplicationVolumeMappingsReturnsStableSortedSet(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected normalized volumes: want %v got %v", want, got)
+	}
+}
+
+func TestApplicationResolvedImageUsesGeneratedBuildTag(t *testing.T) {
+	app := Application{
+		Metadata: Metadata{Name: "Demo_UI"},
+		Build:    BuildConfig{Context: "."},
+	}
+
+	if got := app.ResolvedImage(); got != "stevedore/demo-ui:local" {
+		t.Fatalf("unexpected build image tag: %q", got)
+	}
+}
+
+func TestApplicationBuildPathsResolveFromManifestDirectory(t *testing.T) {
+	app := Application{
+		Metadata:   Metadata{Name: "demo"},
+		Build:      BuildConfig{Context: "../context", Dockerfile: "docker/Dockerfile"},
+		SourcePath: filepath.Join("/repo", "apps", "demo", "stevedore.yml"),
+	}
+
+	if got := app.BuildContextPath(); got != filepath.Clean("/repo/apps/context") {
+		t.Fatalf("unexpected build context path: %q", got)
+	}
+	if got := app.BuildDockerfilePath(); got != filepath.Clean("/repo/apps/demo/docker/Dockerfile") {
+		t.Fatalf("unexpected dockerfile path: %q", got)
 	}
 }

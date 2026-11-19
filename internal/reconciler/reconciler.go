@@ -26,14 +26,10 @@ func (r *Reconciler) Reconcile(app manifest.Application) (*ReconcileResult, erro
 	ctx := context.Background()
 	result := &ReconcileResult{}
 
-	slog.InfoContext(logging.BusinessContext(ctx, "reconcile"), "reconcile start", slog.String("app", app.Metadata.Name), slog.String("image", app.FullImage()))
+	slog.InfoContext(logging.BusinessContext(ctx, "reconcile"), "reconcile start", slog.String("app", app.Metadata.Name), slog.String("image", app.ResolvedImage()))
 
-	desiredSpec, desiredHash, err := desired(app)
+	desiredSpec, desiredHash, err := desired(r.Runtime, app)
 	if err != nil {
-		return result, err
-	}
-
-	if err := r.Runtime.PullImage(desiredSpec.Image); err != nil {
 		return result, err
 	}
 
@@ -63,7 +59,7 @@ func (r *Reconciler) Reconcile(app manifest.Application) (*ReconcileResult, erro
 		}
 		if needs {
 			// Compute and log the specific drift before acting on it
-			if drift, driftErr := ComputeDrift(r.Runtime, app); driftErr == nil {
+			if drift, driftErr := computeDriftWithDesiredHash(r.Runtime, app, desiredHash); driftErr == nil {
 				result.Drift = drift
 				if len(drift.IgnoredExtraEnv) > 0 {
 					extraEnvKeys := make([]string, 0, len(drift.IgnoredExtraEnv))
@@ -164,17 +160,36 @@ func (r *Reconciler) Delete(app manifest.Application) error {
 	return nil
 }
 
-func desired(app manifest.Application) (docker.ContainerSpec, string, error) {
+func desired(runtime docker.Runtime, app manifest.Application) (docker.ContainerSpec, string, error) {
 	spec, err := docker.BuildContainerSpec(app, "")
 	if err != nil {
 		return docker.ContainerSpec{}, "", err
 	}
+	if err := ensureImage(runtime, app, spec.Image); err != nil {
+		return docker.ContainerSpec{}, "", err
+	}
+	imageID, err := runtime.ImageDigest(spec.Image)
+	if err != nil {
+		return docker.ContainerSpec{}, "", err
+	}
+	spec.Labels["stevedore.dev/image-id"] = imageID
 	h, err := docker.HashFromSpec(spec)
 	if err != nil {
 		return docker.ContainerSpec{}, "", err
 	}
 	spec.Labels["stevedore.dev/hash"] = h
 	return spec, h, nil
+}
+
+func ensureImage(runtime docker.Runtime, app manifest.Application, image string) error {
+	if app.UsesBuild() {
+		return runtime.BuildImage(docker.ImageBuildSpec{
+			Tag:            image,
+			ContextPath:    app.BuildContextPath(),
+			DockerfilePath: app.BuildDockerfilePath(),
+		})
+	}
+	return runtime.PullImage(image)
 }
 
 func (r *Reconciler) needsUpdate(app manifest.Application, desiredHash, desiredImage string) (bool, error) {

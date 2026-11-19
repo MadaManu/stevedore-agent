@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"path/filepath"
 	"testing"
 
 	"stevedore-agent/internal/docker"
@@ -23,9 +24,14 @@ type fakeRuntime struct {
 	containerNetworks []string
 	containerVolumes  []docker.VolumeMapping
 	imageDigests      map[string]string // image name -> digest
+	buildCalls        []docker.ImageBuildSpec
 }
 
-func (f *fakeRuntime) PullImage(image string) error                    { f.pulledImage = image; return nil }
+func (f *fakeRuntime) PullImage(image string) error { f.pulledImage = image; return nil }
+func (f *fakeRuntime) BuildImage(spec docker.ImageBuildSpec) error {
+	f.buildCalls = append(f.buildCalls, spec)
+	return nil
+}
 func (f *fakeRuntime) ContainerExists(name string) (bool, error)       { return f.exists, nil }
 func (f *fakeRuntime) ContainerImage(name string) (string, error)      { return f.image, nil }
 func (f *fakeRuntime) ContainerLabel(name, key string) (string, error) { return f.hash, nil }
@@ -87,6 +93,16 @@ func testApp() manifest.Application {
 	}
 }
 
+func testBuildApp(sourcePath string) manifest.Application {
+	return manifest.Application{
+		Metadata:      manifest.Metadata{Name: "demo"},
+		Build:         manifest.BuildConfig{Context: ".", Dockerfile: "Dockerfile"},
+		RestartPolicy: "always",
+		Network:       manifest.NetworkConfig{Name: "apps"},
+		SourcePath:    sourcePath,
+	}
+}
+
 func TestReconcileCreatesContainer(t *testing.T) {
 	fr := &fakeRuntime{}
 	r := &Reconciler{Runtime: fr, Exposure: exposure.NewManager()}
@@ -111,6 +127,7 @@ func TestReconcileStartsExistingStoppedContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	spec.Labels["stevedore.dev/image-id"] = "sha256:known"
 	h, err := docker.HashFromSpec(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -119,10 +136,11 @@ func TestReconcileStartsExistingStoppedContainer(t *testing.T) {
 	fr := &fakeRuntime{
 		exists:            true,
 		running:           false,
-		image:             app.FullImage(),
+		image:             app.ResolvedImage(),
 		hash:              h,
 		network:           true,
 		containerNetworks: app.NetworkNames(),
+		imageDigests:      map[string]string{app.ResolvedImage(): "sha256:known"},
 	}
 	r := &Reconciler{Runtime: fr, Exposure: exposure.NewManager()}
 
@@ -148,10 +166,11 @@ func TestComputeDrift_NoDrift(t *testing.T) {
 		},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image:             app.FullImage(),
+		image:             app.ResolvedImage(),
 		hash:              h,
 		ports:             map[int]int{80: 8080},
 		env:               make(map[string]string), // no user env vars
@@ -179,10 +198,11 @@ func TestComputeDrift_PortDrift(t *testing.T) {
 		},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image:             app.FullImage(),
+		image:             app.ResolvedImage(),
 		hash:              h,
 		ports:             map[int]int{80: 8080}, // actually running on 8080
 		env:               make(map[string]string),
@@ -248,10 +268,10 @@ func TestComputeDrift_EnvironmentDrift(t *testing.T) {
 		},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
-
 	fr := &fakeRuntime{
-		image: app.FullImage(),
+		image: app.ResolvedImage(),
 		hash:  h,
 		ports: map[int]int{},
 		env: map[string]string{
@@ -295,10 +315,10 @@ func TestComputeDrift_ExtraEnvironmentOnly_IsIgnored(t *testing.T) {
 		},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
-
 	fr := &fakeRuntime{
-		image: app.FullImage(),
+		image: app.ResolvedImage(),
 		hash:  h,
 		ports: map[int]int{},
 		env: map[string]string{
@@ -337,10 +357,11 @@ func TestComputeDrift_NetworkDrift(t *testing.T) {
 		},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image:             app.FullImage(),
+		image:             app.ResolvedImage(),
 		hash:              h,
 		ports:             map[int]int{},
 		env:               make(map[string]string),
@@ -372,10 +393,11 @@ func TestComputeDrift_ExtraRuntimeNetwork_IsIgnored(t *testing.T) {
 		Networks:      []manifest.NetworkConfig{{Name: "apps"}},
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image: app.FullImage(),
+		image: app.ResolvedImage(),
 		hash:  h,
 		ports: map[int]int{},
 		env:   make(map[string]string),
@@ -412,10 +434,11 @@ func TestComputeDrift_NoDesiredNetworks_BridgeIgnored(t *testing.T) {
 		// no networks declared
 	}
 	spec, _ := docker.BuildContainerSpec(app, "")
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
 
 	fr := &fakeRuntime{
-		image: app.FullImage(),
+		image: app.ResolvedImage(),
 		hash:  h,
 		ports: map[int]int{},
 		env:   make(map[string]string),
@@ -436,24 +459,28 @@ func TestComputeDrift_NoDesiredNetworks_BridgeIgnored(t *testing.T) {
 }
 
 func TestComputeDrift_VolumeDrift(t *testing.T) {
+	tmp := t.TempDir()
 	app := manifest.Application{
 		Metadata:      manifest.Metadata{Name: "demo"},
 		Image:         manifest.ImageConfig{Repository: "nginx", Tag: "latest"},
 		RestartPolicy: "always",
 		Volumes: []manifest.VolumeMapping{
-			{HostPath: "/data/desired", MountPath: "/srv/data"},
+			{HostPath: filepath.Join(tmp, "desired"), MountPath: "/srv/data"},
 		},
 	}
-	spec, _ := docker.BuildContainerSpec(app, "")
+	spec, err := docker.BuildContainerSpec(app, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Labels["stevedore.dev/image-id"] = "sha256:abc123"
 	h, _ := docker.HashFromSpec(spec)
-
 	fr := &fakeRuntime{
-		image: app.FullImage(),
+		image: app.ResolvedImage(),
 		hash:  h,
 		ports: map[int]int{},
 		env:   make(map[string]string),
 		containerVolumes: []docker.VolumeMapping{
-			{HostPath: "/data/actual", MountPath: "/srv/data"},
+			{HostPath: filepath.Join(tmp, "actual"), MountPath: "/srv/data"},
 		},
 		imageDigests: map[string]string{
 			"nginx:latest": "sha256:abc123",
@@ -502,6 +529,73 @@ func TestDriftReportSummaryAndItems_Order(t *testing.T) {
 	}
 	if items[1] != "networks: apps → apps2" {
 		t.Fatalf("unexpected second drift item: %q", items[1])
+	}
+}
+
+func TestReconcileBuildsLocalImageForBuildApp(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "apps", "demo", "stevedore.yml")
+	app := testBuildApp(sourcePath)
+	fr := &fakeRuntime{
+		imageDigests: map[string]string{
+			app.ResolvedImage(): "sha256:built",
+		},
+	}
+	r := &Reconciler{Runtime: fr, Exposure: exposure.NewManager()}
+
+	_, err := r.Reconcile(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fr.buildCalls) != 1 {
+		t.Fatalf("expected 1 build call, got %d", len(fr.buildCalls))
+	}
+	build := fr.buildCalls[0]
+	if build.Tag != app.ResolvedImage() {
+		t.Fatalf("unexpected build tag: %q", build.Tag)
+	}
+	if build.ContextPath != filepath.Clean(filepath.Join(filepath.Dir(sourcePath), ".")) {
+		t.Fatalf("unexpected build context: %q", build.ContextPath)
+	}
+	if build.DockerfilePath != filepath.Join(filepath.Dir(sourcePath), "Dockerfile") {
+		t.Fatalf("unexpected dockerfile path: %q", build.DockerfilePath)
+	}
+	if fr.pulledImage != "" {
+		t.Fatalf("did not expect registry pull for build app, got %q", fr.pulledImage)
+	}
+}
+
+func TestReconcileRecreatesContainerWhenRebuiltImageChanges(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "apps", "demo", "stevedore.yml")
+	app := testBuildApp(sourcePath)
+	spec, err := docker.BuildContainerSpec(app, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Labels["stevedore.dev/image-id"] = "sha256:old"
+	oldHash, err := docker.HashFromSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fr := &fakeRuntime{
+		exists:            true,
+		running:           true,
+		image:             app.ResolvedImage(),
+		hash:              oldHash,
+		network:           true,
+		containerNetworks: app.NetworkNames(),
+		imageDigests: map[string]string{
+			app.ResolvedImage(): "sha256:new",
+		},
+	}
+	r := &Reconciler{Runtime: fr, Exposure: exposure.NewManager()}
+
+	_, err = r.Reconcile(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fr.created || !fr.started {
+		t.Fatal("expected rebuilt image change to recreate and restart container")
 	}
 }
 

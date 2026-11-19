@@ -13,7 +13,7 @@ It continuously syncs a source of truth (local folder or Git repository), discov
 - Continuous reconcile loop with configurable poll interval
 - Local or Git-backed source of truth
 - Host-aware manifest discovery (`<fqdn>/apps/*` + shared `apps/*`)
-- Declarative container state (image, ports, env, volumes, networks, restart policy)
+- Declarative container state (registry image or local Dockerfile build, ports, env, volumes, networks, restart policy)
 - Runtime drift detection and corrective reconciliation
 - Secret interpolation for manifests (`${local:path/to/secret}`)
 - Bundled Apache exposure provider for HTTP/HTTPS publishing and Let's Encrypt flow
@@ -42,6 +42,7 @@ sudo mkdir -p /srv/stevedore/apps-repo/apps
 sudo cp examples/config/local.yml /etc/stevedore/config.yml
 sudo cp -R examples/apps/demo-api /srv/stevedore/apps-repo/apps/
 sudo cp -R examples/apps/demo-ui /srv/stevedore/apps-repo/apps/
+sudo cp -R examples/apps/demo-build /srv/stevedore/apps-repo/apps/
 sudo cp examples/config/secrets.local.yml /etc/stevedore/secrets.local.yml
 ```
 

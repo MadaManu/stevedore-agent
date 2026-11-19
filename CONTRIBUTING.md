@@ -6,16 +6,16 @@ Thanks for your interest in contributing.
 
 1. Install Go 1.24+ and Docker.
 2. Clone the repository.
-3. Run tests:
+3. Run the same checks as CI:
 
 ```bash
-go test ./...
+make ci
 ```
 
-4. Build locally:
+4. Build the same Linux release artifacts as the release workflow:
 
 ```bash
-go build -o stevedore-agent .
+make build VERSION=dev
 ```
 
 ## Project conventions

@@ -20,9 +20,14 @@ type hashRuntimeFake struct {
 	envByName      map[string]map[string]string
 	networksByName map[string][]string
 	volumesByName  map[string][]docker.VolumeMapping
+	buildCalls     []docker.ImageBuildSpec
 }
 
 func (f *hashRuntimeFake) PullImage(image string) error { return nil }
+func (f *hashRuntimeFake) BuildImage(spec docker.ImageBuildSpec) error {
+	f.buildCalls = append(f.buildCalls, spec)
+	return nil
+}
 func (f *hashRuntimeFake) ContainerExists(name string) (bool, error) {
 	return f.existsByName[name], nil
 }
@@ -427,6 +432,63 @@ func (f *pullErrorRuntime) PullImage(image string) error {
 		return errors.New("simulated pull error")
 	}
 	return nil
+}
+
+func (f *pullErrorRuntime) BuildImage(spec docker.ImageBuildSpec) error {
+	f.pulledApps = append(f.pulledApps, spec.Tag)
+	if spec.Tag == f.failImage {
+		return errors.New("simulated pull error")
+	}
+	return nil
+}
+
+func TestComputeDesiredStateHash_ChangesWhenBuildConfigChanges(t *testing.T) {
+	apps := []manifest.Application{{
+		Metadata: manifest.Metadata{Name: "api"},
+		Build:    manifest.BuildConfig{Context: ".", Dockerfile: "Dockerfile", Tag: "stevedore/api:local"},
+	}}
+
+	before, err := computeDesiredStateHash(apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	apps[0].Build.Dockerfile = "deploy/Dockerfile"
+
+	after, err := computeDesiredStateHash(apps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before == after {
+		t.Fatal("expected desired hash to change when build config changes")
+	}
+}
+
+func TestApplicationsUseBuilds(t *testing.T) {
+	apps := []manifest.Application{
+		{Metadata: manifest.Metadata{Name: "api"}, Image: manifest.ImageConfig{Repository: "nginx"}},
+		{Metadata: manifest.Metadata{Name: "ui"}, Build: manifest.BuildConfig{Context: "."}},
+	}
+
+	if !applicationsUseBuilds(apps) {
+		t.Fatal("expected build-based applications to be detected")
+	}
+}
+
+func TestBuildApplicationsFiltersToBuildBackedApps(t *testing.T) {
+	apps := []manifest.Application{
+		{Metadata: manifest.Metadata{Name: "api"}, Image: manifest.ImageConfig{Repository: "nginx"}},
+		{Metadata: manifest.Metadata{Name: "ui"}, Build: manifest.BuildConfig{Context: "."}},
+	}
+
+	filtered := buildApplications(apps)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 build-based app, got %d", len(filtered))
+	}
+	if filtered[0].Metadata.Name != "ui" {
+		t.Fatalf("unexpected filtered app: %q", filtered[0].Metadata.Name)
+	}
 }
 
 func TestReconcileApps_ContinuesAfterError(t *testing.T) {

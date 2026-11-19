@@ -385,3 +385,74 @@ func TestLoadApplicationsFailsOnDuplicateAppAcrossHostAndSharedDirs(t *testing.T
 		t.Fatalf("expected error to include both duplicate manifest paths, got %v", err)
 	}
 }
+
+func TestLoadApplicationsAcceptsBuildManifest(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `build:
+  context: .
+  dockerfile: Dockerfile
+`
+	manifestPath := filepath.Join(appDir, "stevedore.yml")
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	apps, err := LoadApplications(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(apps))
+	}
+	if apps[0].ResolvedImage() != "stevedore/demo:local" {
+		t.Fatalf("unexpected resolved image: %q", apps[0].ResolvedImage())
+	}
+	if apps[0].BuildContextPath() != filepath.Join(appDir, ".") && apps[0].BuildContextPath() != appDir {
+		t.Fatalf("unexpected build context path: %q", apps[0].BuildContextPath())
+	}
+	if apps[0].BuildDockerfilePath() != filepath.Join(appDir, "Dockerfile") {
+		t.Fatalf("unexpected build dockerfile path: %q", apps[0].BuildDockerfilePath())
+	}
+}
+
+func TestLoadApplicationsFailsWhenImageAndBuildAreBothConfigured(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `image:
+  repository: nginx
+build:
+  context: .
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected image+build manifest to fail")
+	}
+}
+
+func TestLoadApplicationsFailsWhenImageAndBuildAreBothMissing(t *testing.T) {
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `environment:
+  FOO: bar
+`
+	if err := os.WriteFile(filepath.Join(appDir, "stevedore.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadApplications(tmp, nil); err == nil {
+		t.Fatal("expected manifest without image or build to fail")
+	}
+}

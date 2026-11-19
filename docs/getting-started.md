@@ -36,6 +36,7 @@ Copy the bundled examples:
 sudo mkdir -p /srv/stevedore/apps-repo/apps
 sudo cp -R examples/apps/demo-api /srv/stevedore/apps-repo/apps/
 sudo cp -R examples/apps/demo-ui /srv/stevedore/apps-repo/apps/
+sudo cp -R examples/apps/demo-build /srv/stevedore/apps-repo/apps/
 ```
 
 For the local secret example:
@@ -79,9 +80,14 @@ The demo manifests show:
 - multiple apps managed together
 - shared networks
 - host-mounted volumes
+- a locally built Docker image via `build.context` + `build.dockerfile`
 - environment interpolation from a local secrets file
 - optional Apache exposure in the SSL example
 
 If you want to see Apache + HTTPS, review
 [`examples/apps/demo-api-ssl/stevedore.yml`](../examples/apps/demo-api-ssl/stevedore.yml)
 and [docs/apache-exposure.md](apache-exposure.md).
+
+For a local-build manifest example, review
+[`examples/apps/demo-build/stevedore.yml`](../examples/apps/demo-build/stevedore.yml)
+and its sibling [`Dockerfile`](../examples/apps/demo-build/Dockerfile).

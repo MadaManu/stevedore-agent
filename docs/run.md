@@ -66,15 +66,37 @@ Rules:
 - App name is derived from folder name.
 - Duplicate app names across host/shared trees fail startup.
 - Host-specific manifests can live under `<fqdn>/apps/*/stevedore.yml`.
+- Each app must declare exactly one image source: `image` for a registry image or `build` for a local Docker build.
+- Build-based apps are rebuilt on every reconcile cycle; container replacement only happens when the rebuilt image digest changes.
 - `networks` and `volumes` support multi-entry declarations.
 - Legacy `network` and `volume` fields are still accepted.
 - Secret placeholders use `${provider:path}` (currently `local` provider).
+
+Registry image example:
+
+```yaml
+image:
+  repository: nginx
+  tag: 1.31.3
+```
+
+Local build example:
+
+```yaml
+build:
+  context: .
+  dockerfile: Dockerfile
+  tag: stevedore/demo-api:local
+```
+
+`build.context` and `build.dockerfile` are resolved relative to the manifest directory when you use relative paths. If `build.tag` is omitted, Stevedore generates one as `stevedore/<app-name>:local`.
 
 Examples:
 
 - [examples/config/local.yml](../examples/config/local.yml)
 - [examples/config/git.yml](../examples/config/git.yml)
 - [examples/config/secrets.local.yml](../examples/config/secrets.local.yml)
+- [examples/apps/demo-build/stevedore.yml](../examples/apps/demo-build/stevedore.yml)
 
 ## Running as a systemd service
 
