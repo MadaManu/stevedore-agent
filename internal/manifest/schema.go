@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -8,6 +9,7 @@ import (
 type Application struct {
 	Metadata      Metadata          `yaml:"metadata"`
 	Image         ImageConfig       `yaml:"image"`
+	Build         BuildConfig       `yaml:"build"`
 	Container     ContainerConfig   `yaml:"container"`
 	RestartPolicy string            `yaml:"restartPolicy"`
 	Ports         []PortMapping     `yaml:"ports"`
@@ -26,6 +28,12 @@ type Metadata struct {
 
 type ImageConfig struct {
 	Repository string `yaml:"repository"`
+	Tag        string `yaml:"tag"`
+}
+
+type BuildConfig struct {
+	Context    string `yaml:"context"`
+	Dockerfile string `yaml:"dockerfile"`
 	Tag        string `yaml:"tag"`
 }
 
@@ -166,10 +174,87 @@ func (a Application) ContainerName() string {
 	return a.Metadata.Name
 }
 
+func (a Application) ResolvedImage() string {
+	if a.UsesBuild() {
+		return a.BuildImageTag()
+	}
+	return a.FullImage()
+}
+
 func (a Application) FullImage() string {
 	tag := a.Image.Tag
 	if tag == "" {
 		tag = "latest"
 	}
 	return a.Image.Repository + ":" + tag
+}
+
+func (a Application) UsesBuild() bool {
+	return a.Build.IsConfigured()
+}
+
+func (b BuildConfig) IsConfigured() bool {
+	return strings.TrimSpace(b.Context) != "" || strings.TrimSpace(b.Dockerfile) != "" || strings.TrimSpace(b.Tag) != ""
+}
+
+func (a Application) BuildContextPath() string {
+	return a.resolveBuildPath(defaultIfEmpty(strings.TrimSpace(a.Build.Context), "."))
+}
+
+func (a Application) BuildDockerfilePath() string {
+	if dockerfile := strings.TrimSpace(a.Build.Dockerfile); dockerfile != "" {
+		return a.resolveBuildPath(dockerfile)
+	}
+	return filepath.Join(a.BuildContextPath(), "Dockerfile")
+}
+
+func (a Application) BuildImageTag() string {
+	if tag := strings.TrimSpace(a.Build.Tag); tag != "" {
+		return tag
+	}
+	return "stevedore/" + sanitizeImageComponent(a.Metadata.Name) + ":local"
+}
+
+func (a Application) resolveBuildPath(path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	base := filepath.Dir(a.SourcePath)
+	if base == "." || base == "" {
+		base = ""
+	}
+	return filepath.Clean(filepath.Join(base, path))
+}
+
+func defaultIfEmpty(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func sanitizeImageComponent(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return "app"
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range name {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if valid {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	result := strings.Trim(b.String(), "-")
+	if result == "" {
+		return "app"
+	}
+	return result
 }

@@ -85,8 +85,13 @@ func validate(app Application, path, folderName string) error {
 	if app.Metadata.Name != "" && app.Metadata.Name != folderName {
 		return fmt.Errorf("%s: metadata.name %q must match app folder name %q or be omitted", path, app.Metadata.Name, folderName)
 	}
-	if app.Image.Repository == "" {
-		return fmt.Errorf("%s: spec.image.repository is required", path)
+	hasImage := strings.TrimSpace(app.Image.Repository) != ""
+	hasBuild := app.Build.IsConfigured()
+	switch {
+	case hasImage && hasBuild:
+		return fmt.Errorf("%s: exactly one of spec.image or spec.build may be configured", path)
+	case !hasImage && !hasBuild:
+		return fmt.Errorf("%s: either spec.image.repository or spec.build must be configured", path)
 	}
 	if app.RestartPolicy == "" {
 		app.RestartPolicy = "always"

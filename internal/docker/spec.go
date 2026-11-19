@@ -33,7 +33,7 @@ func BuildContainerSpec(app manifest.Application, hash string) (ContainerSpec, e
 
 	return ContainerSpec{
 		Name:          app.ContainerName(),
-		Image:         app.FullImage(),
+		Image:         app.ResolvedImage(),
 		RestartPolicy: app.RestartPolicy,
 		Ports:         ports,
 		Volumes:       volumes,

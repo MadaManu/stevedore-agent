@@ -206,13 +206,18 @@ func reconcileCycle(ctx context.Context, cfg *config.Config, r *reconciler.Recon
 		slog.String("runtimeHash", runtimeHash),
 	)
 
-	if currentManifestHash == lastState.ManifestHash && desiredHash == lastState.DesiredHash && runtimeHash == lastState.RuntimeHash && lastState.ManifestHash != "" && lastState.DesiredHash != "" && lastState.RuntimeHash != "" {
+	hasBuildApps := applicationsUseBuilds(apps)
+	if !hasBuildApps && currentManifestHash == lastState.ManifestHash && desiredHash == lastState.DesiredHash && runtimeHash == lastState.RuntimeHash && lastState.ManifestHash != "" && lastState.DesiredHash != "" && lastState.RuntimeHash != "" {
 		slog.InfoContext(ctx, "no manifest or runtime changes detected, sleeping", slog.Duration("interval", cfg.Poll.Interval))
 		return currentState, nil
 	}
 
+	appsToReconcile := apps
 	reason := "manifest changed"
-	if currentManifestHash == lastState.ManifestHash && desiredHash != lastState.DesiredHash {
+	if hasBuildApps && currentManifestHash == lastState.ManifestHash && desiredHash == lastState.DesiredHash && runtimeHash == lastState.RuntimeHash {
+		reason = "build-based apps require image refresh"
+		appsToReconcile = buildApplications(apps)
+	} else if currentManifestHash == lastState.ManifestHash && desiredHash != lastState.DesiredHash {
 		reason = "resolved configuration changed"
 	} else if currentManifestHash == lastState.ManifestHash {
 		reason = "runtime drift detected"
@@ -222,9 +227,9 @@ func reconcileCycle(ctx context.Context, cfg *config.Config, r *reconciler.Recon
 		slog.String("manifestHash", currentManifestHash),
 		slog.String("runtimeHash", runtimeHash),
 	)
-	slog.DebugContext(ctx, "applications loaded", slog.Int("count", len(apps)))
+	slog.DebugContext(ctx, "applications loaded", slog.Int("count", len(appsToReconcile)))
 
-	if errs := reconcileApps(ctx, r, apps); len(errs) > 0 {
+	if errs := reconcileApps(ctx, r, appsToReconcile); len(errs) > 0 {
 		for _, e := range errs {
 			slog.ErrorContext(logging.SecurityContext(context.Background(), "reconcile"), "reconcile failed", slog.String("error", e.Error()))
 		}
@@ -237,6 +242,25 @@ func reconcileCycle(ctx context.Context, cfg *config.Config, r *reconciler.Recon
 	}
 	currentState.RuntimeHash = postRuntimeHash
 	return currentState, nil
+}
+
+func applicationsUseBuilds(apps []manifest.Application) bool {
+	for _, app := range apps {
+		if app.UsesBuild() {
+			return true
+		}
+	}
+	return false
+}
+
+func buildApplications(apps []manifest.Application) []manifest.Application {
+	filtered := make([]manifest.Application, 0, len(apps))
+	for _, app := range apps {
+		if app.UsesBuild() {
+			filtered = append(filtered, app)
+		}
+	}
+	return filtered
 }
 
 type runtimeSnapshot struct {
@@ -363,6 +387,7 @@ func computeDesiredStateHash(apps []manifest.Application) (string, error) {
 	type desiredSnapshot struct {
 		Metadata      manifest.Metadata        `json:"metadata"`
 		Image         manifest.ImageConfig     `json:"image"`
+		Build         manifest.BuildConfig     `json:"build"`
 		Container     manifest.ContainerConfig `json:"container"`
 		RestartPolicy string                   `json:"restartPolicy"`
 		Ports         []manifest.PortMapping   `json:"ports"`
@@ -377,6 +402,7 @@ func computeDesiredStateHash(apps []manifest.Application) (string, error) {
 		snapshots = append(snapshots, desiredSnapshot{
 			Metadata:      app.Metadata,
 			Image:         app.Image,
+			Build:         app.Build,
 			Container:     app.Container,
 			RestartPolicy: app.RestartPolicy,
 			Ports:         app.Ports,

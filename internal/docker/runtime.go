@@ -12,6 +12,7 @@ import (
 
 type Runtime interface {
 	PullImage(image string) error
+	BuildImage(spec ImageBuildSpec) error
 	ContainerExists(name string) (bool, error)
 	ContainerImage(name string) (string, error)
 	ContainerLabel(name, key string) (string, error)
@@ -43,6 +44,12 @@ type ContainerSpec struct {
 	Labels        map[string]string
 }
 
+type ImageBuildSpec struct {
+	Tag            string
+	ContextPath    string
+	DockerfilePath string
+}
+
 type PortMapping struct {
 	HostPort      int
 	ContainerPort int
@@ -61,6 +68,11 @@ func NewDockerRuntime() *DockerRuntime {
 
 func (d *DockerRuntime) PullImage(image string) error {
 	_, err := runDocker("pull", image)
+	return err
+}
+
+func (d *DockerRuntime) BuildImage(spec ImageBuildSpec) error {
+	_, err := runDocker("build", "-f", spec.DockerfilePath, "-t", spec.Tag, spec.ContextPath)
 	return err
 }
 

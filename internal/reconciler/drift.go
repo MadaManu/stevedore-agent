@@ -103,6 +103,14 @@ func (d DriftReport) Items() []string {
 //
 // The container must already exist; callers should check ContainerExists before calling.
 func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport, error) {
+	_, desiredHash, err := desired(runtime, app)
+	if err != nil {
+		return DriftReport{}, err
+	}
+	return computeDriftWithDesiredHash(runtime, app, desiredHash)
+}
+
+func computeDriftWithDesiredHash(runtime docker.Runtime, app manifest.Application, desiredHash string) (DriftReport, error) {
 	report := DriftReport{
 		EnvDrifts:       make(map[string]EnvDrift),
 		IgnoredExtraEnv: make(map[string]string),
@@ -113,7 +121,7 @@ func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport
 	if err != nil {
 		return report, err
 	}
-	desiredImage := app.FullImage()
+	desiredImage := app.ResolvedImage()
 
 	// For "latest" tags or when images differ, compare by digest
 	if currentImage != desiredImage {
@@ -228,10 +236,6 @@ func ComputeDrift(runtime docker.Runtime, app manifest.Application) (DriftReport
 
 	// 6. Config drift — hash catches restart policy and any remaining spec drift
 	if !report.ImageChanged && len(report.PortDrifts) == 0 && len(report.EnvDrifts) == 0 && !report.NetworkChanged && !report.VolumeChanged {
-		_, desiredHash, err := desired(app)
-		if err != nil {
-			return report, err
-		}
 		currentHash, err := runtime.ContainerLabel(app.ContainerName(), "stevedore.dev/hash")
 		if err != nil {
 			return report, err
